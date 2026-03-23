@@ -1,10 +1,11 @@
-# Deploy AIGuard on Azure Virtual Machine
+# Deploy AIGuard on Azure (Bicep)
 
-Deploy AIGuard as a standalone proxy on an Azure VM.
+Deploy AIGuard as a standalone proxy on an Azure VM using a Bicep template.
+Installs from the public repo: [github.com/aibuildspace/aiguard](https://github.com/aibuildspace/aiguard)
 
 ## Prerequisites
 
-- [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) installed
+- [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) installed (includes Bicep)
 - Logged in: `az login`
 - An active Azure subscription
 
@@ -16,26 +17,52 @@ chmod +x deploy.sh
 ./deploy.sh
 ```
 
-This will:
+The interactive script will:
 
-1. Create a resource group (`aiguard-rg`)
-2. Provision an Ubuntu 24.04 LTS VM (`Standard_B1s`)
-3. Run cloud-init to install Python, AIGuard, and configure systemd
-4. Open port 8080 in the network security group
-5. Print the public IP and connection details
+1. Let you pick a **region** and **VM size** (arrow keys)
+2. Deploy the Bicep template (VM + networking + NSG)
+3. Wait for cloud-init to install AIGuard from GitHub
+4. Verify the service is healthy
+5. **Onboard your first user** (org -> user -> API key)
+6. Print ready-to-use `export` commands for your AI tool
+
+## Files
+
+| File | Description |
+|---|---|
+| `main.bicep` | ARM/Bicep template: VM, VNet, NSG, public IP |
+| `deploy.sh` | Interactive wrapper: deploys Bicep + onboards user |
 
 ## Options
 
 | Flag | Default | Description |
 |---|---|---|
-| `--resource-group` | `aiguard-rg` | Azure resource group name |
 | `--location` | `eastus` | Azure region |
+| `--vm-size` | `Standard_B1s` | VM size (B1s = free tier eligible) |
 | `--vm-name` | `aiguard-vm` | Virtual machine name |
-| `--vm-size` | `Standard_B1s` | VM size (SKU) |
+| `--resource-group` | `aiguard-rg` | Resource group name |
+| `--branch` | `main` | Git branch/tag to deploy from |
+| `--yes`, `-y` | | Skip all prompts, use defaults |
 
 ```bash
-# Example: larger VM in West Europe
-./deploy.sh --vm-size Standard_B2s --location westeurope
+# Non-interactive deploy
+./deploy.sh --location australiaeast --vm-size Standard_B2s --yes
+
+# Deploy a specific release
+./deploy.sh --branch v0.2.0
+```
+
+## Deploy Bicep Directly
+
+You can deploy the Bicep template without the wrapper script:
+
+```bash
+az group create --name aiguard-rg --location eastus
+
+az deployment group create \
+  --resource-group aiguard-rg \
+  --template-file main.bicep \
+  --parameters vmSize=Standard_B1s sshPublicKey="$(cat ~/.ssh/id_rsa.pub)"
 ```
 
 ## Post-Deployment
@@ -53,34 +80,29 @@ sudo systemctl status aiguard
 sudo journalctl -u aiguard -f
 ```
 
-### Configure your AI tools
-
-```bash
-export ANTHROPIC_BASE_URL=http://<PUBLIC_IP>:8080/anthropic
-export OPENAI_BASE_URL=http://<PUBLIC_IP>:8080/openai
-```
-
 ### Admin API key
 
-The deploy script auto-generates an admin key. Retrieve it from the VM:
+```bash
+ssh azureuser@<PUBLIC_IP> "sudo grep ADMIN /home/aiguard/aiguard/.env"
+```
+
+### Manual onboarding (if skipped during deploy)
 
 ```bash
-ssh azureuser@<PUBLIC_IP> "cat /home/aiguard/aiguard/.env | grep ADMIN"
+ssh azureuser@<PUBLIC_IP>
+sudo -u aiguard guard onboard
 ```
 
 ## Production Hardening
 
-For production use, consider:
-
-- **HTTPS** — Use Azure Application Gateway or nginx with TLS
-- **NSG rules** — Restrict inbound CIDRs to your team's IP ranges
-- **Database** — Switch `GUARD_DATABASE_URL` to Azure Database for PostgreSQL
-- **VM size** — `Standard_B2s` or larger for sustained workloads
-- **Monitoring** — Export OTLP metrics to Azure Monitor or Application Insights
+- **HTTPS** - Use Azure Application Gateway or nginx with TLS
+- **NSG rules** - Restrict inbound CIDRs to your team IP ranges
+- **Database** - Switch `GUARD_DATABASE_URL` to Azure Database for PostgreSQL
+- **VM size** - `Standard_B2s` or larger for sustained workloads
+- **Monitoring** - Export OTLP metrics to Azure Monitor
 
 ## Teardown
 
 ```bash
-# Delete everything in one command
 az group delete --name aiguard-rg --yes --no-wait
 ```
