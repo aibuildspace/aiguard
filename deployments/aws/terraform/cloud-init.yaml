@@ -1,0 +1,63 @@
+#cloud-config
+# ─────────────────────────────────────────────────────────────────────────────
+# AIGuard — Cloud-Init for Amazon Linux 2023
+# ─────────────────────────────────────────────────────────────────────────────
+package_update: true
+package_upgrade: true
+
+packages:
+  - python3.11
+  - python3.11-pip
+  - git
+
+runcmd:
+  # Create service user
+  - useradd -r -m -s /bin/bash aiguard
+
+  # Clone repo and install
+  - su - aiguard -c "git clone --depth 1 --branch ${repo_branch} ${repo_url} ~/repo"
+  - su - aiguard -c "cd ~/repo && python3.11 -m pip install --user --break-system-packages ."
+  - su - aiguard -c "mkdir -p ~/aiguard"
+
+  # Copy shields into working directory
+  - su - aiguard -c "cp -r ~/repo/shields ~/aiguard/shields"
+
+  # Generate config with admin key
+  - |
+    ADMIN_KEY=$(python3.11 -c 'import secrets; print(secrets.token_urlsafe(32))')
+    cat > /home/aiguard/aiguard/.env <<EOF
+    GUARD_HOST=0.0.0.0
+    GUARD_PORT=8080
+    GUARD_LOG_LEVEL=info
+    GUARD_PASSTHROUGH_MODE=true
+    GUARD_ADMIN_API_ENABLED=true
+    GUARD_ADMIN_API_KEY=$ADMIN_KEY
+    GUARD_DATABASE_URL=sqlite+aiosqlite:///./aiguard.db
+    EOF
+    chown aiguard:aiguard /home/aiguard/aiguard/.env
+    sed -i 's/^[[:space:]]*//' /home/aiguard/aiguard/.env
+
+  # Create systemd service
+  - |
+    cat > /etc/systemd/system/aiguard.service <<EOF
+    [Unit]
+    Description=AIGuard LLM Security Proxy
+    After=network.target
+
+    [Service]
+    Type=simple
+    User=aiguard
+    WorkingDirectory=/home/aiguard/aiguard
+    ExecStart=/home/aiguard/.local/bin/guard start --host 0.0.0.0 --port 8080
+    Restart=always
+    RestartSec=5
+    Environment=PATH=/home/aiguard/.local/bin:/usr/bin:/bin
+
+    [Install]
+    WantedBy=multi-user.target
+    EOF
+    sed -i 's/^[[:space:]]*//' /etc/systemd/system/aiguard.service
+
+  - systemctl daemon-reload
+  - systemctl enable aiguard
+  - systemctl start aiguard

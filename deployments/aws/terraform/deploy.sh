@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
-# AIGuard — Deploy to Azure via Bicep
+# AIGuard — Deploy to AWS via Terraform
 #
-# Deploys AIGuard using an ARM/Bicep template, then onboards the first user.
+# Deploys AIGuard using Terraform (VPC + EC2 + cloud-init), then onboards
+# the first user.
 # Installs from: https://github.com/aibuildspace/aiguard
 #
-# Requires: Azure CLI (az) authenticated, with Bicep support.
+# Requires: Terraform >= 1.5, AWS CLI v2 authenticated.
 #
 # Usage:
 #   chmod +x deploy.sh
@@ -15,38 +16,39 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TF_DIR="$SCRIPT_DIR/terraform"
 
 # ── Defaults ─────────────────────────────────────────────────────────────────
-RESOURCE_GROUP="aiguard-rg"
-LOCATION="eastus"
-VM_NAME="aiguard-vm"
-VM_SIZE="Standard_B1s"
-ADMIN_USER="azureuser"
+REGION="us-east-1"
+INSTANCE_TYPE="t3.micro"
+INSTANCE_NAME="aiguard-proxy"
+ADMIN_USER="ec2-user"
 AUTO_YES=false
 BRANCH="main"
+DESTROY=false
 
-LOCATIONS=("eastus" "westus" "centralus" "westus2" "northeurope" "westeurope" "southeastasia" "australiaeast")
-VM_SIZES=("Standard_B1s" "Standard_B1ls" "Standard_B2s" "Standard_B2ats_v2" "Standard_DS1_v2")
+REGIONS=("us-east-1" "us-west-2" "us-east-2" "eu-west-1" "eu-central-1" "ap-southeast-1" "ap-southeast-2" "ap-northeast-1")
+INSTANCE_TYPES=("t3.micro" "t3.small" "t3.medium" "t3.large" "t2.micro")
 
 # ── Parse CLI args ───────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --resource-group) RESOURCE_GROUP="$2"; shift 2 ;;
-        --location)       LOCATION="$2"; shift 2 ;;
-        --vm-name)        VM_NAME="$2"; shift 2 ;;
-        --vm-size)        VM_SIZE="$2"; shift 2 ;;
+        --region)         REGION="$2"; shift 2 ;;
+        --instance-type)  INSTANCE_TYPE="$2"; shift 2 ;;
+        --instance-name)  INSTANCE_NAME="$2"; shift 2 ;;
         --branch)         BRANCH="$2"; shift 2 ;;
         --yes|-y)         AUTO_YES=true; shift ;;
+        --destroy)        DESTROY=true; shift ;;
         --help)
             echo "Usage: ./deploy.sh [OPTIONS]"
             echo ""
             echo "Options:"
-            echo "  --location LOC         Azure region (default: eastus)"
-            echo "  --vm-size SIZE         VM size (default: Standard_B1s)"
-            echo "  --vm-name NAME         VM name (default: aiguard-vm)"
-            echo "  --resource-group RG    Resource group (default: aiguard-rg)"
-            echo "  --branch BRANCH        Git branch/tag to deploy (default: main)"
-            echo "  --yes, -y              Skip prompts, use defaults"
+            echo "  --region REGION          AWS region (default: us-east-1)"
+            echo "  --instance-type TYPE     EC2 instance type (default: t3.micro)"
+            echo "  --instance-name NAME     Instance name tag (default: aiguard-proxy)"
+            echo "  --branch BRANCH          Git branch/tag to deploy (default: main)"
+            echo "  --yes, -y                Skip prompts, use defaults"
+            echo "  --destroy                Tear down all resources"
             exit 0 ;;
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
@@ -104,56 +106,81 @@ pick() {
 
 # ── Banner ───────────────────────────────────────────────────────────────────
 echo "╔══════════════════════════════════════════════════════════╗"
-echo "║        AIGuard — Azure Deployment (Bicep)               ║"
+echo "║        AIGuard — AWS Deployment (Terraform)             ║"
 echo "╚══════════════════════════════════════════════════════════╝"
 
-# ── Verify Azure CLI ────────────────────────────────────────────────────────
-if ! command -v az &>/dev/null; then
-    echo "❌ Azure CLI not found. Install: https://learn.microsoft.com/en-us/cli/azure/install-azure-cli"
+# ── Verify prerequisites ────────────────────────────────────────────────────
+if ! command -v terraform &>/dev/null; then
+    echo "❌ Terraform not found. Install: https://developer.hashicorp.com/terraform/install"
     exit 1
 fi
 
-az account show >/dev/null 2>&1 || {
-    echo "❌ Not logged in. Run: az login"
+if ! command -v aws &>/dev/null; then
+    echo "❌ AWS CLI not found. Install: https://docs.aws.amazon.com/cli/latest/userguide/install-cliv2.html"
+    exit 1
+fi
+
+aws sts get-caller-identity >/dev/null 2>&1 || {
+    echo "❌ AWS credentials not configured. Run: aws configure"
     exit 1
 }
 
-SUBSCRIPTION=$(az account show --query name --output tsv)
+ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
 echo ""
-echo "  ✓ Subscription: $SUBSCRIPTION"
+echo "  ✓ AWS Account: $ACCOUNT"
+
+# ── Destroy mode ─────────────────────────────────────────────────────────────
+if [[ "$DESTROY" == true ]]; then
+    echo ""
+    echo "→ Destroying all AIGuard resources..."
+    cd "$TF_DIR"
+    terraform destroy -auto-approve \
+        -var "aws_region=$REGION"
+    echo "  ✓ All resources destroyed"
+    exit 0
+fi
 
 # ── Interactive config ───────────────────────────────────────────────────────
-LOCATION=$(pick "Select region" "${LOCATIONS[@]}")
-VM_SIZE=$(pick "Select VM size" "${VM_SIZES[@]}")
+REGION=$(pick "Select region" "${REGIONS[@]}")
+INSTANCE_TYPE=$(pick "Select instance type" "${INSTANCE_TYPES[@]}")
 
 if [[ "$AUTO_YES" != true ]]; then
     echo ""
-    read -rp "  Resource group [$RESOURCE_GROUP]: " rg </dev/tty
-    RESOURCE_GROUP="${rg:-$RESOURCE_GROUP}"
-    read -rp "  VM name [$VM_NAME]: " vn </dev/tty
-    VM_NAME="${vn:-$VM_NAME}"
+    read -rp "  Instance name [$INSTANCE_NAME]: " name_input </dev/tty
+    INSTANCE_NAME="${name_input:-$INSTANCE_NAME}"
 fi
 
 # ── SSH key ──────────────────────────────────────────────────────────────────
-SSH_KEY_FILE="$HOME/.ssh/id_rsa.pub"
+SSH_PUBLIC_KEY=""
+SSH_KEY_FILE="$HOME/.ssh/id_ed25519.pub"
 if [[ ! -f "$SSH_KEY_FILE" ]]; then
-    SSH_KEY_FILE="$HOME/.ssh/id_ed25519.pub"
+    SSH_KEY_FILE="$HOME/.ssh/id_rsa.pub"
 fi
-if [[ ! -f "$SSH_KEY_FILE" ]]; then
-    echo "→ Generating SSH key pair..."
-    ssh-keygen -t ed25519 -f "$HOME/.ssh/id_ed25519" -N "" -q
-    SSH_KEY_FILE="$HOME/.ssh/id_ed25519.pub"
+
+if [[ -f "$SSH_KEY_FILE" ]]; then
+    if [[ "$AUTO_YES" != true ]]; then
+        echo ""
+        use_key=$(pick "Use existing SSH key ($SSH_KEY_FILE)?" "Yes — use my key" "No — generate a new one")
+        if [[ "$use_key" == "Yes — use my key" ]]; then
+            SSH_PUBLIC_KEY=$(cat "$SSH_KEY_FILE")
+        fi
+    else
+        SSH_PUBLIC_KEY=$(cat "$SSH_KEY_FILE")
+    fi
 fi
-SSH_PUBLIC_KEY=$(cat "$SSH_KEY_FILE")
+
+SSH_DISPLAY="auto-generate"
+if [[ -n "$SSH_PUBLIC_KEY" ]]; then
+    SSH_DISPLAY="$SSH_KEY_FILE"
+fi
 
 echo ""
 echo "  ┌──────────────────────────────────────────┐"
-echo "  │  Region:    $LOCATION"
-echo "  │  VM size:   $VM_SIZE"
-echo "  │  VM name:   $VM_NAME"
-echo "  │  RG:        $RESOURCE_GROUP"
+echo "  │  Region:    $REGION"
+echo "  │  Instance:  $INSTANCE_TYPE"
+echo "  │  Name:      $INSTANCE_NAME"
 echo "  │  Branch:    $BRANCH"
-echo "  │  SSH key:   $SSH_KEY_FILE"
+echo "  │  SSH key:   $SSH_DISPLAY"
 echo "  └──────────────────────────────────────────┘"
 echo ""
 
@@ -163,92 +190,55 @@ if [[ "$AUTO_YES" != true ]]; then
     [[ "$confirm" =~ ^[Yy] ]] || { echo "  Aborted."; exit 0; }
 fi
 
-# ── Resource group ───────────────────────────────────────────────────────────
-echo "→ Resource group: $RESOURCE_GROUP"
-EXISTING_RG_LOCATION=$(az group show --name "$RESOURCE_GROUP" --query location --output tsv 2>/dev/null || true)
+# ── Terraform init & apply ───────────────────────────────────────────────────
+cd "$TF_DIR"
 
-if [[ -n "$EXISTING_RG_LOCATION" ]]; then
-    if [[ "$EXISTING_RG_LOCATION" == "$LOCATION" ]]; then
-        echo "  ✓ Already exists in $LOCATION — reusing"
-    else
-        echo "  ⚠ Exists in $EXISTING_RG_LOCATION, you selected $LOCATION"
-        if [[ "$AUTO_YES" == true ]]; then
-            do_delete_rg="Y"
-        else
-            read -rp "  Delete and recreate in $LOCATION? [Y/n]: " do_delete_rg </dev/tty
-            do_delete_rg="${do_delete_rg:-Y}"
-        fi
-        if [[ "$do_delete_rg" =~ ^[Yy] ]]; then
-            echo "  → Deleting resource group (this may take a minute)..."
-            az group delete --name "$RESOURCE_GROUP" --yes --output none
-            az group create --name "$RESOURCE_GROUP" --location "$LOCATION" --output none
-            echo "  ✓ Recreated in $LOCATION"
-        else
-            echo "  Aborted."
-            exit 0
-        fi
-    fi
-else
-    az group create --name "$RESOURCE_GROUP" --location "$LOCATION" --output none
-    echo "  ✓ Created"
-fi
+echo "→ Initialising Terraform..."
+terraform init -input=false -upgrade >/dev/null 2>&1
+echo "  ✓ Initialised"
 
-# ── Check existing VM ────────────────────────────────────────────────────────
-EXISTING_VM=$(az vm show --resource-group "$RESOURCE_GROUP" --name "$VM_NAME" --query name --output tsv 2>/dev/null || true)
+echo "→ Deploying infrastructure..."
+TF_ARGS=(
+    -auto-approve
+    -var "aws_region=$REGION"
+    -var "instance_type=$INSTANCE_TYPE"
+    -var "instance_name=$INSTANCE_NAME"
+    -var "repo_branch=$BRANCH"
+    -var "ssh_public_key=$SSH_PUBLIC_KEY"
+)
 
-if [[ -n "$EXISTING_VM" ]]; then
-    echo "→ VM '$VM_NAME' already exists"
-    if [[ "$AUTO_YES" == true ]]; then
-        do_delete_vm="Y"
-    else
-        read -rp "  Delete and redeploy? [Y/n]: " do_delete_vm </dev/tty
-        do_delete_vm="${do_delete_vm:-Y}"
-    fi
-    if [[ "$do_delete_vm" =~ ^[Yy] ]]; then
-        echo "  → Deleting existing resources..."
-        az group delete --name "$RESOURCE_GROUP" --yes --output none
-        az group create --name "$RESOURCE_GROUP" --location "$LOCATION" --output none
-        echo "  ✓ Clean slate"
-    else
-        echo "  Aborted."
-        exit 0
-    fi
-fi
+terraform apply "${TF_ARGS[@]}"
 
-# ── Deploy Bicep template ───────────────────────────────────────────────────
-echo "→ Deploying Bicep template..."
-DEPLOY_OUTPUT=$(az deployment group create \
-    --resource-group "$RESOURCE_GROUP" \
-    --template-file "$SCRIPT_DIR/main.bicep" \
-    --parameters \
-        vmName="$VM_NAME" \
-        vmSize="$VM_SIZE" \
-        adminUsername="$ADMIN_USER" \
-        sshPublicKey="$SSH_PUBLIC_KEY" \
-        repoBranch="$BRANCH" \
-    --query "properties.outputs" \
-    --output json)
+PUBLIC_IP=$(terraform output -raw public_ip)
+SSH_CMD=$(terraform output -raw ssh_command)
+PROXY_URL=$(terraform output -raw proxy_url)
 
-PUBLIC_IP=$(echo "$DEPLOY_OUTPUT" | python3 -c "import json,sys; print(json.load(sys.stdin)['publicIpAddress']['value'])")
+echo ""
 echo "  ✓ Deployment complete"
 echo "  ✓ Public IP: $PUBLIC_IP"
 
 # ── Remove stale SSH host key ────────────────────────────────────────────────
 ssh-keygen -R "$PUBLIC_IP" 2>/dev/null || true
 
+# ── Determine SSH key for commands ───────────────────────────────────────────
+SSH_OPTS="-o StrictHostKeyChecking=no -o ConnectTimeout=5 -o UserKnownHostsFile=/dev/null"
+if [[ -z "$SSH_PUBLIC_KEY" ]]; then
+    KEY_FILE=$(terraform output -raw ssh_private_key_file)
+    SSH_OPTS="$SSH_OPTS -i $KEY_FILE"
+fi
+
 # ── Wait for cloud-init ─────────────────────────────────────────────────────
 echo "→ Waiting for cloud-init (2-4 minutes)..."
 MAX_WAIT=300
 ELAPSED=0
 while (( ELAPSED < MAX_WAIT )); do
-    STATUS=$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -o UserKnownHostsFile=/dev/null \
-        "$ADMIN_USER@$PUBLIC_IP" \
+    STATUS=$(ssh $SSH_OPTS "$ADMIN_USER@$PUBLIC_IP" \
         "cloud-init status 2>/dev/null | grep -oE 'done|error|running'" 2>/dev/null || true)
     if [[ "$STATUS" == "done" ]]; then
         break
     elif [[ "$STATUS" == "error" ]]; then
         echo "  ⚠ cloud-init finished with errors"
-        echo "  Check: ssh $ADMIN_USER@$PUBLIC_IP sudo cloud-init status --long"
+        echo "  Check: $SSH_CMD sudo cloud-init status --long"
         break
     fi
     printf "  ⏳ %ds...\r" "$ELAPSED"
@@ -275,14 +265,13 @@ done
 
 if ! curl -sf "http://$PUBLIC_IP:8080/health" >/dev/null 2>&1; then
     echo "  ⚠ Service not responding yet"
-    echo "  Check: ssh $ADMIN_USER@$PUBLIC_IP sudo journalctl -u aiguard -f"
+    echo "  Check: $SSH_CMD sudo journalctl -u aiguard -f"
 else
     echo "  ✓ AIGuard is running"
 fi
 
 # ── Read admin key ───────────────────────────────────────────────────────────
-ADMIN_KEY=$(ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-    "$ADMIN_USER@$PUBLIC_IP" \
+ADMIN_KEY=$(ssh $SSH_OPTS "$ADMIN_USER@$PUBLIC_IP" \
     "sudo grep GUARD_ADMIN_API_KEY /home/aiguard/aiguard/.env | cut -d= -f2" 2>/dev/null || true)
 
 # ── Onboard first user ──────────────────────────────────────────────────────
@@ -361,7 +350,7 @@ if [[ -n "${onboard_email:-}" && -n "${ADMIN_KEY:-}" ]]; then
         if [[ -n "${USER_ID:-}" ]]; then
             create_api_key() {
                 local provider="$1" upstream_key="${2:-}"
-                local payload="{\"org_id\": \"$ORG_ID\", \"user_id\": \"$USER_ID\", \"label\": \"azure-deploy-$provider\", \"provider\": \"$provider\""
+                local payload="{\"org_id\": \"$ORG_ID\", \"user_id\": \"$USER_ID\", \"label\": \"aws-deploy-$provider\", \"provider\": \"$provider\""
                 if [[ -n "$upstream_key" ]]; then
                     payload="$payload, \"upstream_key\": \"$upstream_key\""
                 fi
@@ -373,7 +362,6 @@ if [[ -n "${onboard_email:-}" && -n "${ADMIN_KEY:-}" ]]; then
             }
 
             if [[ "$onboard_provider" == "any" ]]; then
-                # Create separate keys per provider with their upstream keys
                 OPENAI_KEY_RESPONSE=$(create_api_key "openai" "${upstream_openai:-}")
                 ANTHROPIC_KEY_RESPONSE=$(create_api_key "anthropic" "${upstream_anthropic:-}")
 
@@ -388,7 +376,6 @@ if [[ -n "${onboard_email:-}" && -n "${ADMIN_KEY:-}" ]]; then
                     echo "  ✓ Anthropic API Key: ${ANTHROPIC_KEY_PREFIX}…"
                 fi
             else
-                # Single provider
                 UPSTREAM_KEY=""
                 if [[ "$onboard_provider" == "openai" ]]; then
                     UPSTREAM_KEY="${upstream_openai:-}"
@@ -414,14 +401,14 @@ echo "╔═══════════════════════�
 echo "║  ✅  AIGuard deployed successfully!                     ║"
 echo "╚══════════════════════════════════════════════════════════╝"
 echo ""
-echo "  VM:        $VM_NAME ($VM_SIZE)"
-echo "  Region:    $LOCATION"
+echo "  Instance:  $INSTANCE_NAME ($INSTANCE_TYPE)"
+echo "  Region:    $REGION"
 echo "  Public IP: $PUBLIC_IP"
 echo "  Proxy URL: http://$PUBLIC_IP:8080"
 echo "  Portal:    http://$PUBLIC_IP:8080/portal"
 echo ""
-echo "  SSH:       ssh $ADMIN_USER@$PUBLIC_IP"
-echo "  Logs:      ssh $ADMIN_USER@$PUBLIC_IP sudo journalctl -u aiguard -f"
+echo "  SSH:       $SSH_CMD"
+echo "  Logs:      $SSH_CMD sudo journalctl -u aiguard -f"
 
 # Show API key(s)
 if [[ -n "${OPENAI_FULL_KEY:-}" || -n "${ANTHROPIC_FULL_KEY:-}" ]]; then
@@ -442,7 +429,7 @@ elif [[ -n "${FULL_KEY:-}" ]]; then
 else
     echo ""
     echo "  To create a user + API key:"
-    echo "    ssh $ADMIN_USER@$PUBLIC_IP"
+    echo "    $SSH_CMD"
     echo "    sudo -u aiguard guard onboard"
 fi
 
@@ -450,7 +437,8 @@ echo ""
 echo "  Configure your AI tools:"
 echo "    guard setup"
 echo ""
-echo "  Teardown:  az group delete --name $RESOURCE_GROUP --yes --no-wait"
+echo "  Teardown:  cd deployments/aws && ./deploy.sh --destroy"
 echo ""
-echo "  ⚠️  For production: add HTTPS, restrict NSG rules, use managed PostgreSQL."
+echo "  ⚠️  For production: add HTTPS (ALB/nginx), restrict security group CIDRs,"
+echo "      and switch to managed PostgreSQL (RDS)."
 echo ""

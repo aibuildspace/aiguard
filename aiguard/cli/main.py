@@ -11,6 +11,7 @@ from aiguard.cli.commands.org import app as org_app
 from aiguard.cli.commands.user import app as user_app
 from aiguard.cli.commands.shield import app as shield_app
 from aiguard.cli.commands.audit import app as audit_app
+from aiguard.cli.commands.setup import app as setup_app
 from aiguard.cli.commands.onboard import onboard as onboard_cmd
 
 app.add_typer(server_app, name="server", help="Server management (start, stop, status)")
@@ -18,6 +19,7 @@ app.add_typer(org_app, name="org", help="Manage organisations")
 app.add_typer(user_app, name="user", help="Manage users and API keys")
 app.add_typer(shield_app, name="shield", help="Manage and test shields")
 app.add_typer(audit_app, name="audit", help="View audit logs")
+app.add_typer(setup_app, name="setup", help="Configure AI tools to use AIGuard proxy")
 
 app.command("onboard")(onboard_cmd)
 
@@ -119,18 +121,13 @@ def start(
     host: str = typer.Option("127.0.0.1", "--host", "-h", help="Bind host"),
     port: int = typer.Option(8080, "--port", "-p", help="Bind port"),
     workers: int = typer.Option(1, "--workers", "-w", help="Uvicorn worker count"),
-    reload: bool = typer.Option(False, "--reload", help="Enable auto-reload (dev only)"),
-    mode: str = typer.Option("dev", "--mode", "-m", help="Run mode: dev or prod"),
+    reload: bool = typer.Option(False, "--reload", help="Enable auto-reload"),
 ):
-    """Start the AIGuard server (default: dev mode)."""
-    if mode not in ("dev", "prod"):
-        from aiguard.cli.theme import console
-        console.print(f"[error]Invalid mode '{mode}'. Use 'dev' or 'prod'.[/error]")
-        raise typer.Exit(1)
-    _start_server(mode=mode, host=host, port=port, workers=workers, reload=reload)
+    """Start AIGuard in DEV mode — full access, portal enabled."""
+    _start_server(mode="dev", host=host, port=port, workers=workers, reload=reload)
 
 
-@app.command("startdev")
+@app.command("startdev", hidden=True)
 def startdev(
     host: str = typer.Option("127.0.0.1", "--host", "-h", help="Bind host"),
     port: int = typer.Option(8080, "--port", "-p", help="Bind port"),

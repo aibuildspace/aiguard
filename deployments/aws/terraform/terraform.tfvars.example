@@ -1,0 +1,24 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# AIGuard — Example Terraform Variables
+#
+# Copy to terraform.tfvars and customise:
+#   cp terraform.tfvars.example terraform.tfvars
+# ─────────────────────────────────────────────────────────────────────────────
+
+aws_region    = "us-east-1"
+instance_type = "t3.micro"
+instance_name = "aiguard-proxy"
+repo_branch   = "main"
+
+# Provide your SSH public key to skip auto-generation:
+# ssh_public_key = "ssh-ed25519 AAAA..."
+
+# Restrict access to your IP range (recommended for production):
+# allowed_ssh_cidrs   = ["203.0.113.0/24"]
+# allowed_proxy_cidrs = ["203.0.113.0/24"]
+
+# Extra tags:
+# tags = {
+#   Environment = "production"
+#   Team        = "platform"
+# }
