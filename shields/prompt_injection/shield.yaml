@@ -1,0 +1,89 @@
+id: prompt_injection
+name: Prompt Injection Detector
+version: 1.0.0
+type: logic
+description: 'Detects attempts to inject malicious instructions via user-supplied
+  content. Common vector: copy-pasting text from the web that contains hidden instructions.
+
+  '
+author: aiguard-team
+tags:
+- security
+- injection
+- owasp
+targets:
+- messages
+- tool_results
+phase: pre_request
+default_action: block
+severity: high
+patterns:
+- id: ignore_instructions
+  description: Classic 'ignore previous instructions' injection
+  type: regex
+  field: content
+  role: user
+  pattern: (?i)(ignore\s+(all\s+)?(previous|prior|above|any)\s+instructions?)
+  severity: high
+  action: block
+- id: disregard_prompt
+  description: Variations of ignoring system prompt
+  type: regex
+  field: content
+  role: user
+  pattern: (?i)(disregard\s+(your\s+)?(system\s+prompt|instructions|rules|guidelines))
+  severity: high
+  action: block
+- id: new_persona
+  description: Attempts to override AI identity
+  type: regex
+  field: content
+  role: user
+  pattern: (?i)(you\s+are\s+now\s+(?!an?\s+AI|a\s+helpful)|from\s+now\s+on\s+you\s+(are|will\s+be))
+  severity: high
+  action: warn
+- id: delimiter_escape
+  description: Attempts to inject prompt format delimiters
+  type: keyword
+  field: content
+  keywords:
+  - '[INST]'
+  - '[/INST]'
+  - <|im_start|>
+  - <|im_end|>
+  - <|system|>
+  - <|user|>
+  - <|assistant|>
+  - '### System:'
+  - '### Human:'
+  - '### Assistant:'
+  severity: high
+  action: block
+- id: jailbreak_dan
+  description: DAN-style jailbreak attempts
+  type: regex
+  field: content
+  role: user
+  pattern: (?i)(do\s+anything\s+now|DAN\s+mode|jailbreak\s+mode|developer\s+mode\s+enabled)
+  severity: critical
+  action: block
+- id: system_override
+  description: Attempts to inject system-level directives
+  type: regex
+  field: content
+  role: user
+  pattern: (?i)(system\s*:\s*you\s+(are|must|will|should)|<system>|</system>)
+  severity: high
+  action: block
+- id: hidden_html
+  description: HTML/CSS tricks to hide injected instructions
+  type: regex
+  field: content
+  pattern: (<\s*span[^>]*style\s*=\s*["'][^"']*color\s*:\s*(white|transparent)|font-size\s*:\s*0)
+  severity: critical
+  action: block
+logic_module: logic.py
+params:
+  scan_depth_messages: 20
+  whitelist_system_prompt: true
+enabled: false

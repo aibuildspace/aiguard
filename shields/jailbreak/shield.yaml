@@ -1,0 +1,61 @@
+id: jailbreak
+name: Jailbreak Detector
+version: 1.0.0
+type: pattern
+description: 'Detects common jailbreak patterns: persona overrides, roleplay-based
+  constraint bypasses, and social engineering attempts.'
+author: aiguard-team
+tags:
+- security
+- jailbreak
+targets:
+- messages
+phase: pre_request
+default_action: block
+severity: medium
+patterns:
+- id: roleplay_bypass
+  description: Using roleplay to bypass safety guidelines
+  type: regex
+  field: content
+  role: user
+  pattern: (?i)(pretend\s+(you\s+are|to\s+be)\s+(?!helpful|an?\s+AI)|roleplay\s+as\s+(?!helpful|an?\s+AI))
+  severity: medium
+  action: warn
+- id: hypothetical_bypass
+  description: Hypothetical framing to bypass restrictions
+  type: regex
+  field: content
+  role: user
+  pattern: (?i)(hypothetically\s+(speaking,?\s+)?if\s+you\s+(could|were|had\s+no)|in\s+a\s+fictional\s+world\s+where\s+you\s+have\s+no)
+  severity: medium
+  action: warn
+- id: grandma_exploit
+  description: Social engineering via emotional manipulation
+  type: regex
+  field: content
+  role: user
+  pattern: (?i)(my\s+grandma\s+used\s+to\s+|as\s+a\s+chemistry\s+teacher\s+explain|as\s+a\s+security\s+researcher\s+(show|tell|explain)\s+me\s+how\s+to)
+  severity: low
+  action: log
+- id: token_manipulation
+  description: Attempts to manipulate via special tokens or formatting
+  type: regex
+  field: content
+  role: user
+  pattern: (?i)(</?(s|human|assistant|system|inst)>|\[/?(INST|SYS|s)\])
+  severity: high
+  action: block
+- id: many_shot_jailbreak
+  description: Repeated prompts attempting to wear down guardrails
+  type: keyword
+  field: content
+  keywords:
+  - try again
+  - previous answer was wrong
+  - you said you couldn't but
+  severity: low
+  action: log
+params:
+  min_warn_confidence: 1
+enabled: false

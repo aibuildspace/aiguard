@@ -1,0 +1,24 @@
+id: content_policy
+name: Content Policy
+version: 1.0.0
+type: logic
+description: 'Configurable keyword and pattern blocklist. Organisations can enable
+  this shield and add their own banned terms via org policy params. Default ships
+  with no blocked keywords — fully configurable.
+
+  '
+author: aiguard-team
+tags:
+- compliance
+- content
+targets:
+- messages
+phase: pre_request
+default_action: block
+severity: medium
+patterns: []
+logic_module: logic.py
+params:
+  blocked_keywords: []
+  case_sensitive: false
+enabled: false

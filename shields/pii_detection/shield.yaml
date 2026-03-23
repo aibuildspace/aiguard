@@ -1,0 +1,76 @@
+id: pii_detection
+name: PII Detection
+version: 1.0.0
+type: logic
+description: Detects personally identifiable information (PII) in prompts. Prevents
+  accidental leakage of sensitive data to external AI APIs. Default action is warn;
+  configure sanitize or block per org policy.
+author: aiguard-team
+tags:
+- compliance
+- privacy
+- gdpr
+- hipaa
+- pii
+targets:
+- messages
+- tool_results
+phase: pre_request
+default_action: sanitize
+severity: medium
+patterns:
+- id: ssn_us
+  description: US Social Security Numbers
+  type: regex
+  field: content
+  pattern: \b(?!000|666|9\d{2})\d{3}-(?!00)\d{2}-(?!0000)\d{4}\b
+  severity: high
+  action: warn
+  replacement: '[REDACTED-SSN]'
+- id: credit_card
+  description: Credit card numbers (Visa, MC, Amex, Discover)
+  type: regex
+  field: content
+  pattern: \b(?:4[0-9]{3}[-\s]?[0-9]{4}[-\s]?[0-9]{4}[-\s]?[0-9]{4}|5[1-5][0-9]{2}[-\s]?[0-9]{4}[-\s]?[0-9]{4}[-\s]?[0-9]{4}|3[47][0-9]{2}[-\s]?[0-9]{6}[-\s]?[0-9]{5}|6(?:011|5[0-9]{2})[-\s]?[0-9]{4}[-\s]?[0-9]{4}[-\s]?[0-9]{4})\b
+  severity: critical
+  action: block
+  replacement: '[REDACTED-CC]'
+- id: passport_number
+  description: Passport numbers (common formats)
+  type: regex
+  field: content
+  pattern: \b[A-Z]{1,2}[0-9]{6,9}\b
+  severity: high
+  action: warn
+- id: api_key_generic
+  description: Generic API key patterns
+  type: regex
+  field: content
+  pattern: (?i)(api[_\-]?key|secret[_\-]?key|access[_\-]?token)\s*[:=]\s*["']?([A-Za-z0-9_\-]{20,})
+  severity: high
+  action: warn
+- id: aws_access_key
+  description: AWS Access Key IDs
+  type: regex
+  field: content
+  pattern: \bAKIA[0-9A-Z]{16}\b
+  severity: critical
+  action: block
+- id: private_key_pem
+  description: PEM-encoded private keys
+  type: keyword
+  field: content
+  keywords:
+  - '-----BEGIN RSA PRIVATE KEY-----'
+  - '-----BEGIN PRIVATE KEY-----'
+  - '-----BEGIN EC PRIVATE KEY-----'
+  - '-----BEGIN OPENSSH PRIVATE KEY-----'
+  severity: critical
+  action: block
+logic_module: logic.py
+params:
+  use_ner: false
+  ner_entities:
+  - PERSON
+  - ORG
+enabled: true
