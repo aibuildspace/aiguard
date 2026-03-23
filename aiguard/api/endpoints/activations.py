@@ -44,6 +44,7 @@ router = APIRouter(prefix="/activations", tags=["activations"])
 
 CLAUDE_CODE_SETTINGS = Path.home() / ".claude" / "settings.json"
 OPENCLAW_CONFIG = Path.home() / ".openclaw" / "openclaw.json"
+OPENCLAW_AUTH_PROFILES = Path.home() / ".openclaw" / "agents" / "main" / "agent" / "auth-profiles.json"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -88,10 +89,17 @@ def _check_claude_code(proxy_base: str) -> dict:
         expected = f"{proxy_base}/anthropic"
 
         if current_url == expected:
+            key_info = ""
+            if current_key and current_key.startswith("aip_"):
+                key_info = f", API_KEY → {current_key[:16]}…"
+            elif current_key:
+                key_info = ", API_KEY → (non-proxy key)"
+            else:
+                key_info = ", API_KEY → not set"
             return {
                 "installed": True,
                 "active": True,
-                "detail": f"ANTHROPIC_BASE_URL → {expected}",
+                "detail": f"ANTHROPIC_BASE_URL → {expected}{key_info}",
             }
         elif current_url:
             return {
@@ -104,10 +112,10 @@ def _check_claude_code(proxy_base: str) -> dict:
         return {"installed": installed, "active": False, "detail": f"Error: {e}"}
 
 
-def _write_claude_code(proxy_url: str) -> dict:
+def _write_claude_code(proxy_url: str, api_key: str | None = None) -> dict:
     """
-    Set ANTHROPIC_BASE_URL in ~/.claude/settings.json to route through proxy.
-    Leaves ANTHROPIC_API_KEY untouched — passthrough mode forwards it.
+    Set ANTHROPIC_BASE_URL (and optionally ANTHROPIC_API_KEY) in
+    ~/.claude/settings.json to route through proxy.
     """
     CLAUDE_CODE_SETTINGS.parent.mkdir(parents=True, exist_ok=True)
     data: dict = {}
@@ -116,22 +124,28 @@ def _write_claude_code(proxy_url: str) -> dict:
 
     env = data.setdefault("env", {})
     env["ANTHROPIC_BASE_URL"] = f"{proxy_url}/anthropic"
+    if api_key:
+        env["ANTHROPIC_API_KEY"] = api_key
 
     CLAUDE_CODE_SETTINGS.write_text(json.dumps(data, indent=2) + "\n")
-    return {"ok": True, "detail": f"Set ANTHROPIC_BASE_URL → {proxy_url}/anthropic"}
+    detail = f"Set ANTHROPIC_BASE_URL → {proxy_url}/anthropic"
+    if api_key:
+        detail += f", ANTHROPIC_API_KEY → {api_key[:16]}…"
+    return {"ok": True, "detail": detail}
 
 
 def _remove_claude_code() -> dict:
-    """Remove ANTHROPIC_BASE_URL from ~/.claude/settings.json."""
+    """Remove ANTHROPIC_BASE_URL and ANTHROPIC_API_KEY from ~/.claude/settings.json."""
     if not CLAUDE_CODE_SETTINGS.exists():
         return {"ok": True, "detail": "No settings file to modify"}
 
     data = json.loads(CLAUDE_CODE_SETTINGS.read_text())
     env = data.get("env", {})
     removed = []
-    if "ANTHROPIC_BASE_URL" in env:
-        del env["ANTHROPIC_BASE_URL"]
-        removed.append("ANTHROPIC_BASE_URL")
+    for var in ("ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY"):
+        if var in env:
+            del env[var]
+            removed.append(var)
     if not env:
         data.pop("env", None)
 
@@ -142,7 +156,7 @@ def _remove_claude_code() -> dict:
 def _check_openclaw(proxy_base: str) -> dict:
     """
     Return status dict for OpenClaw by inspecting models.providers
-    in ~/.openclaw/openclaw.json.
+    in ~/.openclaw/openclaw.json and auth key from auth-profiles.json.
     """
     installed = _detect_tool("openclaw")
     try:
@@ -155,20 +169,33 @@ def _check_openclaw(proxy_base: str) -> dict:
         data = json.loads(OPENCLAW_CONFIG.read_text())
         providers = data.get("models", {}).get("providers", {})
 
+        # Read the actual key from auth-profiles.json
+        auth_key = ""
+        if OPENCLAW_AUTH_PROFILES.exists():
+            auth_data = json.loads(OPENCLAW_AUTH_PROFILES.read_text())
+            profile = auth_data.get("profiles", {}).get("openai:default", {})
+            auth_key = profile.get("key", "")
+
         # Check if any provider has our proxy baseUrl
         for name, prov_cfg in providers.items():
             base_url = prov_cfg.get("baseUrl", "")
-            api_key = prov_cfg.get("apiKey", "")
 
             if not base_url:
                 continue
 
             # Check if baseUrl points at our proxy
             if base_url.startswith(proxy_base):
+                key_info = ""
+                if auth_key and auth_key.startswith("aip_"):
+                    key_info = f", apiKey → {auth_key[:16]}…"
+                elif auth_key:
+                    key_info = ", apiKey → (non-proxy key)"
+                else:
+                    key_info = ", apiKey → not set"
                 return {
                     "installed": True,
                     "active": True,
-                    "detail": f"models.providers.{name} → {base_url}",
+                    "detail": f"models.providers.{name} → {base_url}{key_info}",
                 }
 
         return {"installed": installed, "active": False, "detail": "models.providers not proxied"}
@@ -176,10 +203,10 @@ def _check_openclaw(proxy_base: str) -> dict:
         return {"installed": installed, "active": False, "detail": f"Error: {e}"}
 
 
-def _write_openclaw(proxy_url: str) -> dict:
+def _write_openclaw(proxy_url: str, api_key: str | None = None) -> dict:
     """
-    Set proxy baseUrl in models.providers.openai in ~/.openclaw/openclaw.json.
-    Leaves apiKey untouched — passthrough mode forwards it.
+    Set proxy baseUrl in models.providers.openai in ~/.openclaw/openclaw.json
+    and write API key to auth-profiles.json (where OpenClaw actually reads it).
     """
     if not OPENCLAW_CONFIG.exists():
         return {"ok": False, "detail": "openclaw.json not found – run `openclaw onboard` first"}
@@ -191,20 +218,35 @@ def _write_openclaw(proxy_url: str) -> dict:
     providers = models.setdefault("providers", {})
     openai_cfg = providers.setdefault("openai", {})
 
-    # Set proxy base URL only
+    # Set proxy base URL
     openai_cfg["baseUrl"] = f"{proxy_url}/openai/v1"
     if "models" not in openai_cfg:
         openai_cfg["models"] = []
 
     OPENCLAW_CONFIG.write_text(json.dumps(data, indent=2) + "\n")
 
-    return {"ok": True, "detail": f"Set models.providers.openai.baseUrl → {proxy_url}/openai/v1"}
+    # Write API key to auth-profiles.json (where OpenClaw gateway reads it)
+    if api_key and OPENCLAW_AUTH_PROFILES.exists():
+        auth_data = json.loads(OPENCLAW_AUTH_PROFILES.read_text())
+        profile = auth_data.setdefault("profiles", {}).setdefault("openai:default", {})
+        # Backup original key for deactivation restore
+        if not profile.get("_original_key") and profile.get("key"):
+            profile["_original_key"] = profile["key"]
+        profile["key"] = api_key
+        profile["type"] = "api_key"
+        profile["provider"] = "openai"
+        OPENCLAW_AUTH_PROFILES.write_text(json.dumps(auth_data, indent=2) + "\n")
+
+    detail = f"Set models.providers.openai.baseUrl → {proxy_url}/openai/v1"
+    if api_key:
+        detail += f", auth-profiles key → {api_key[:16]}…"
+    return {"ok": True, "detail": detail}
 
 
 def _remove_openclaw() -> dict:
     """
-    Remove proxy baseUrl from models.providers in ~/.openclaw/openclaw.json.
-    Leaves apiKey untouched.
+    Remove proxy baseUrl from models.providers in ~/.openclaw/openclaw.json
+    and restore original API key in auth-profiles.json.
     """
     if not OPENCLAW_CONFIG.exists():
         return {"ok": True, "detail": "No config file to modify"}
@@ -218,17 +260,28 @@ def _remove_openclaw() -> dict:
         if not prov_cfg:
             continue
 
-        # Remove proxy baseUrl only
+        # Remove proxy baseUrl
         if "baseUrl" in prov_cfg:
             del prov_cfg["baseUrl"]
             changed = True
 
-        # Clean up _original_apiKey backup if present (legacy)
+        # Clean up legacy fields
+        prov_cfg.pop("apiKey", None)
         prov_cfg.pop("_original_apiKey", None)
 
     OPENCLAW_CONFIG.write_text(json.dumps(data, indent=2) + "\n")
 
-    detail = "Removed proxy baseUrl from providers" if changed else "No proxy config found"
+    # Restore original API key in auth-profiles.json
+    if OPENCLAW_AUTH_PROFILES.exists():
+        auth_data = json.loads(OPENCLAW_AUTH_PROFILES.read_text())
+        profile = auth_data.get("profiles", {}).get("openai:default", {})
+        original_key = profile.pop("_original_key", None)
+        if original_key:
+            profile["key"] = original_key
+            changed = True
+        OPENCLAW_AUTH_PROFILES.write_text(json.dumps(auth_data, indent=2) + "\n")
+
+    detail = "Removed proxy config from providers" if changed else "No proxy config found"
     return {"ok": True, "detail": detail}
 
 
@@ -237,8 +290,8 @@ def _remove_openclaw() -> dict:
 # ═══════════════════════════════════════════════════════════════════════════
 
 class ActivateRequest(BaseModel):
-    """Kept for API compatibility; fields are currently unused."""
-    pass
+    """Optional API key to write into the tool's config."""
+    api_key: str = ""
 
 
 class ActivateResult(BaseModel):
@@ -265,13 +318,14 @@ async def get_activation_status():
 @router.post("/claude-code/activate")
 async def activate_claude_code(body: ActivateRequest | None = None) -> ActivateResult:
     """
-    Activate Claude Code CLI: set ANTHROPIC_BASE_URL to route through proxy.
-    The tool's existing ANTHROPIC_API_KEY is left in place (passthrough mode).
+    Activate Claude Code CLI: set ANTHROPIC_BASE_URL and optionally
+    ANTHROPIC_API_KEY in ~/.claude/settings.json.
     """
     proxy_base = _proxy_base_url()
+    api_key = body.api_key if body else None
     try:
-        result = _write_claude_code(proxy_base)
-        logger.info("Claude Code activated (proxy URL only)")
+        result = _write_claude_code(proxy_base, api_key=api_key or None)
+        logger.info("Claude Code activated%s", " (with API key)" if api_key else " (proxy URL only)")
         return ActivateResult(ok=result["ok"], detail=result["detail"])
     except Exception as e:
         logger.error("Failed to activate Claude Code: %s", e)
@@ -293,13 +347,13 @@ async def deactivate_claude_code() -> ActivateResult:
 @router.post("/openclaw/activate")
 async def activate_openclaw(body: ActivateRequest | None = None) -> ActivateResult:
     """
-    Activate OpenClaw: set provider baseUrl to route through proxy.
-    The tool's existing API key is left in place (passthrough mode).
+    Activate OpenClaw: set provider baseUrl and optionally apiKey.
     """
     proxy_base = _proxy_base_url()
+    api_key = body.api_key if body else None
     try:
-        result = _write_openclaw(proxy_base)
-        logger.info("OpenClaw activated (proxy URL only)")
+        result = _write_openclaw(proxy_base, api_key=api_key or None)
+        logger.info("OpenClaw activated%s", " (with API key)" if api_key else " (proxy URL only)")
         return ActivateResult(ok=result["ok"], detail=result["detail"])
     except Exception as e:
         logger.error("Failed to activate OpenClaw: %s", e)

@@ -38,6 +38,12 @@ class KeyResponse(BaseModel):
     provider: str
     is_active: bool
     last_used_at: str | None
+    has_upstream_key: bool = False
+
+
+class KeyUpdate(BaseModel):
+    upstream_key: str | None = None
+    label: str | None = None
 
 
 @router.post("", response_model=KeyCreateResponse, status_code=201)
@@ -101,6 +107,28 @@ async def revoke_key(key_id: str):
         await session.commit()
 
 
+@router.patch("/{key_id}")
+async def update_key(key_id: str, data: KeyUpdate):
+    """Update an API key's upstream key or label."""
+    async with async_session_factory() as session:
+        key = await session.get(ApiKey, uuid.UUID(key_id))
+        if not key:
+            raise HTTPException(status_code=404, detail="Key not found")
+
+        if data.label is not None:
+            key.label = data.label
+
+        if data.upstream_key is not None:
+            if data.upstream_key == "":
+                key.upstream_key_encrypted = None
+            else:
+                from aiguard.crypto import encrypt
+                key.upstream_key_encrypted = encrypt(data.upstream_key)
+
+        await session.commit()
+    return {"ok": True}
+
+
 @router.delete("", status_code=200)
 async def delete_all_keys():
     """Hard-delete every API key."""
@@ -124,4 +152,5 @@ def _to_response(key: ApiKey) -> KeyResponse:
         provider=key.provider,
         is_active=key.is_active,
         last_used_at=key.last_used_at.isoformat() if key.last_used_at else None,
+        has_upstream_key=bool(key.upstream_key_encrypted),
     )

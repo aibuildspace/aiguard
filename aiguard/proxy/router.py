@@ -194,8 +194,11 @@ async def _handle_proxy_request(request: Request, path: str) -> Any:
             for f in summary.all_findings
         ]
         # Build a short human-readable summary for tools/clients
-        shield_names = sorted({f.shield_id for f in summary.all_findings})
-        short_msg = f"Blocked by {', '.join(shield_names)}" if shield_names else "Request blocked by security policy"
+        # Only list shields whose effective action was actually "block"
+        blocking_shields = sorted(
+            {r.shield_id for r in summary.results if r.effective_action == "block"}
+        )
+        short_msg = f"Blocked by {', '.join(blocking_shields)}" if blocking_shields else "Request blocked by security policy"
         _write_audit_log(
             request_id=request_id,
             identity=identity,
@@ -278,6 +281,12 @@ async def _handle_proxy_request(request: Request, path: str) -> Any:
     if is_streaming and isinstance(forward_body, dict) and provider.name == "openai" and "chat/completions" in path:
         forward_body.setdefault("stream_options", {})["include_usage"] = True
 
+    # For OpenAI Responses API: ensure store=true so response IDs can be
+    # referenced in multi-turn conversations (otherwise OpenAI returns 404
+    # when the client passes a previous rs_... ID in follow-up requests)
+    if isinstance(forward_body, dict) and provider.name == "openai" and "/responses" in path:
+        forward_body.setdefault("store", True)
+
     # Build a callback for deferred audit (streaming only)
     _model = content.get("model", "")
 
@@ -314,6 +323,50 @@ async def _handle_proxy_request(request: Request, path: str) -> Any:
         body=forward_body,
         on_stream_complete=_on_stream_complete if is_streaming else None,
     )
+
+    # Retry once for stale response references on the Responses API.
+    # When OpenClaw (or any client) references an rs_... ID from a response
+    # that was created without store=true, OpenAI returns 404.  Strip the
+    # stale reference and retry so the conversation can continue.
+    if (
+        response.status_code == 404
+        and isinstance(forward_body, dict)
+        and "/responses" in path
+    ):
+        stripped = False
+
+        # 1. Top-level previous_response_id
+        if "previous_response_id" in forward_body:
+            stale_id = forward_body.pop("previous_response_id")
+            logger.warning(
+                "Stripping stale previous_response_id=%s for retry", stale_id,
+            )
+            stripped = True
+
+        # 2. Stale rs_... items embedded in input[] (e.g. reasoning refs)
+        input_items = forward_body.get("input")
+        if isinstance(input_items, list):
+            cleaned = []
+            for item in input_items:
+                if isinstance(item, dict) and isinstance(item.get("id"), str) and item["id"].startswith("rs_"):
+                    logger.warning(
+                        "Stripping stale input item type=%s id=%s for retry",
+                        item.get("type", "?"), item["id"],
+                    )
+                    stripped = True
+                    continue
+                cleaned.append(item)
+            if stripped:
+                forward_body["input"] = cleaned
+
+        if stripped:
+            response, timing = await forward_request(
+                request=request,
+                upstream_url=upstream_url,
+                upstream_key=upstream_key,
+                body=forward_body,
+                on_stream_complete=_on_stream_complete if is_streaming else None,
+            )
 
     # Add proxy headers to response
     for k, v in extra_headers.items():

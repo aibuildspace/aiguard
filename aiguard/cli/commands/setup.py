@@ -18,6 +18,7 @@ app = typer.Typer(no_args_is_help=True)
 _style = PROMPT_STYLE
 
 OPENCLAW_CONFIG = Path.home() / ".openclaw" / "openclaw.json"
+OPENCLAW_AUTH_PROFILES = Path.home() / ".openclaw" / "agents" / "main" / "agent" / "auth-profiles.json"
 CLAUDE_SETTINGS = Path.home() / ".claude" / "settings.json"
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -59,12 +60,27 @@ def _configure_openclaw(proxy_url: str, api_key: str) -> bool:
     """Configure OpenClaw to route through AIGuard."""
     base_url = proxy_url.rstrip("/") + "/openai/v1"
 
-    # Write config directly — reliable regardless of CLI version
+    # Write baseUrl to openclaw.json
     data = _read_json(OPENCLAW_CONFIG)  # returns {} if file doesn't exist
     _set_nested(data, "models.providers.openai.baseUrl", base_url)
-    _set_nested(data, "models.providers.openai.apiKey", api_key)
     _write_json(OPENCLAW_CONFIG, data)  # creates parent dirs if needed
-    console.print(f"  [success]✓[/success] OpenClaw configured → {OPENCLAW_CONFIG}")
+
+    # Write API key to auth-profiles.json (where gateway reads it)
+    if OPENCLAW_AUTH_PROFILES.exists():
+        auth_data = _read_json(OPENCLAW_AUTH_PROFILES)
+        profiles = auth_data.setdefault("profiles", {})
+        profile = profiles.setdefault("openai:default", {})
+        # Backup original key for reset
+        if not profile.get("_original_key") and profile.get("key"):
+            profile["_original_key"] = profile["key"]
+        profile["key"] = api_key
+        profile["type"] = "api_key"
+        profile["provider"] = "openai"
+        _write_json(OPENCLAW_AUTH_PROFILES, auth_data)
+        console.print(f"  [success]\u2713[/success] OpenClaw configured \u2192 {OPENCLAW_CONFIG} + auth-profiles.json")
+    else:
+        console.print(f"  [success]\u2713[/success] OpenClaw configured \u2192 {OPENCLAW_CONFIG}")
+        console.print("  [warning]\u26a0[/warning]  auth-profiles.json not found \u2014 run [accent]openclaw onboard[/accent] first")
 
     # Auto-restart gateway
     _restart_openclaw()
@@ -125,9 +141,14 @@ def _show_openclaw_status() -> None:
         return
     data = _read_json(OPENCLAW_CONFIG)
     url = _get_nested(data, "models.providers.openai.baseUrl", "[muted]not set[/muted]")
-    key = _get_nested(data, "models.providers.openai.apiKey")
-    key_display = f"{key[:16]}…" if key and len(key) > 16 else (key or "[muted]not set[/muted]")
     console.print(f"  Base URL : [value]{url}[/value]")
+
+    # Read actual key from auth-profiles.json
+    key = None
+    if OPENCLAW_AUTH_PROFILES.exists():
+        auth_data = _read_json(OPENCLAW_AUTH_PROFILES)
+        key = auth_data.get("profiles", {}).get("openai:default", {}).get("key")
+    key_display = f"{key[:16]}…" if key and len(key) > 16 else (key or "[muted]not set[/muted]")
     console.print(f"  API Key  : [value]{key_display}[/value]")
 
 
@@ -316,16 +337,12 @@ def setup_reset():
     if not confirm:
         raise typer.Abort()
 
-    # OpenClaw — remove baseUrl and apiKey
+    # OpenClaw — remove baseUrl and restore original key
     if OPENCLAW_CONFIG.exists():
         if shutil.which("openclaw"):
             try:
                 subprocess.run(
                     ["openclaw", "config", "unset", "models.providers.openai.baseUrl"],
-                    check=True, capture_output=True, text=True,
-                )
-                subprocess.run(
-                    ["openclaw", "config", "unset", "models.providers.openai.apiKey"],
                     check=True, capture_output=True, text=True,
                 )
                 console.print("  [success]✓[/success] OpenClaw proxy config removed")
@@ -345,6 +362,16 @@ def setup_reset():
                 providers.pop("apiKey", None)
                 _write_json(OPENCLAW_CONFIG, data)
                 console.print("  [success]✓[/success] OpenClaw proxy config removed")
+
+        # Restore original API key in auth-profiles.json
+        if OPENCLAW_AUTH_PROFILES.exists():
+            auth_data = _read_json(OPENCLAW_AUTH_PROFILES)
+            profile = auth_data.get("profiles", {}).get("openai:default", {})
+            original_key = profile.pop("_original_key", None)
+            if original_key:
+                profile["key"] = original_key
+                _write_json(OPENCLAW_AUTH_PROFILES, auth_data)
+                console.print("  [success]✓[/success] OpenClaw original API key restored")
 
     # Claude Code — remove env vars
     if CLAUDE_SETTINGS.exists():

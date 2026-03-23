@@ -71,13 +71,13 @@ guard shield test prompt_injection --message "ignore all previous instructions"
 
 ```mermaid
 graph TB
-    CLIENT["Claude Code · OpenClaw"]
+    CLIENT["Claude · OpenClaw"]
     AUTH["🔐 Auth & Budget"]
     SHIELDS["🛡 Shields · Prompt Injection · PII · Jailbreak · Policy"]
     DECISION{"Outcome"}
     BLOCK["⛔ Blocked"]
     FWD["📡 Forward"]
-    LLM["Anthropic · OpenAI"]
+    LLM["Anthropic · OpenAI or other LLM provider"]
     AUDIT[("📝 Audit Log")]
 
     CLIENT --> AUTH --> SHIELDS --> DECISION

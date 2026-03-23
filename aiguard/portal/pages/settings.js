@@ -29,6 +29,7 @@ async function renderSettings() {
         var slug = (idPrefix ? idPrefix + "-" : "") + tool.replace("_", "-");
         var installed = st.installed !== false;
         var actionsHtml = "";
+        var keyInputHtml = "";
 
         if (!installed) {
             actionsHtml = '<span class="activation-badge not-installed">Not Installed</span>';
@@ -38,6 +39,9 @@ async function renderSettings() {
         } else {
             actionsHtml = '<span id="' + slug + '-badge"><span class="activation-badge inactive">Inactive</span></span>'
                 + '<button class="btn btn-primary btn-xs" id="' + slug + '-activate-btn">Activate</button>';
+            keyInputHtml = '<div class="activation-key-input">'
+                + '<input type="password" id="' + slug + '-api-key" placeholder="aip_... (API key for proxy auth)" class="activation-key-field">'
+                + '</div>';
         }
 
         return '<div class="activation-row">'
@@ -48,6 +52,7 @@ async function renderSettings() {
             + '</div>'
             + '<div class="activation-actions">' + actionsHtml + '</div>'
             + '<div class="activation-detail-wrap">'
+            +   keyInputHtml
             +   '<p class="activation-detail" id="' + slug + '-detail">' + esc(st.detail) + '</p>'
             + '</div>'
             + '</div>';
@@ -172,17 +177,37 @@ async function renderSettings() {
     $content().innerHTML = html;
 
     // ══════════════════════════════════════════════════════════════════════
-    // ACTIVATION — directly call backend (no key needed, passthrough mode)
+    // ACTIVATION — configure tool with proxy URL and API key
     // ══════════════════════════════════════════════════════════════════════
 
     async function _handleActivate(tool, btnOverride) {
         var slug = tool.replace("_", "-");
         var btn = btnOverride || $("#" + slug + "-activate-btn");
         if (!btn) return;
+
+        // Read API key from the inline input — check the button's card first,
+        // then fall back to the main Tool Integrations card input.
+        var keyInput = null;
+        // Determine which card this button belongs to by checking for gf- prefix
+        var btnId = btn.id || "";
+        if (btnId.startsWith("gf-")) {
+            keyInput = $("#gf-" + slug + "-api-key");
+        }
+        if (!keyInput) {
+            keyInput = $("#" + slug + "-api-key");
+        }
+        var apiKey = keyInput ? keyInput.value.trim() : "";
+
+        if (!apiKey) {
+            showToast("Enter an API key (aip_...) to activate", "error");
+            if (keyInput) keyInput.focus();
+            return;
+        }
+
         btn.disabled = true;
         btn.textContent = "Activating...";
         try {
-            var res = await api.post("/activations/" + slug + "/activate");
+            var res = await api.post("/activations/" + slug + "/activate", { api_key: apiKey });
             if (res.ok) {
                 showToast((tool === "claude_code" ? "Claude Code" : "OpenClaw") + " activated", "success");
                 _rerender(renderSettings);

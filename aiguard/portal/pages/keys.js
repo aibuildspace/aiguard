@@ -169,6 +169,28 @@ function _openKeyPanel(key, orgMap, userMap, budget) {
 
         <div class="trace-flat-section">
             <div class="trace-flat-label">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                Upstream API Key
+            </div>
+            <div class="user-panel-form" id="kp-upstream-section">
+                <p class="text-muted" style="margin:0 0 8px;font-size:0.78rem">
+                    ${key.has_upstream_key
+                        ? 'An upstream key is configured. Enter a new value to replace it.'
+                        : 'No upstream key — proxy will fall back to <code>OPENAI_API_KEY</code> env var or passthrough.'}
+                </p>
+                <div class="form-group">
+                    <label>Upstream Key</label>
+                    <input type="password" id="kp-upstream-key" placeholder="${key.has_upstream_key ? '••••••••  (replace)' : 'sk-...'}" value="">
+                </div>
+                <div class="user-panel-btn-row">
+                    <button class="btn btn-primary btn-sm" id="kp-save-upstream">Save Upstream Key</button>
+                    ${key.has_upstream_key ? '<button class="btn btn-outline-danger btn-sm" id="kp-remove-upstream">Remove</button>' : ''}
+                </div>
+            </div>
+        </div>
+
+        <div class="trace-flat-section">
+            <div class="trace-flat-label">
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>
                 Budget
             </div>
@@ -297,6 +319,32 @@ function _wireKeyPanelActions(key, budget) {
             try {
                 await api.del(`/keys/${key.id}`);
                 showToast("Key revoked");
+                $("#key-detail-dialog").close();
+                _rerender(renderKeys);
+            } catch (e) { showToast("Error: " + e.message, "error"); }
+        };
+    }
+
+    // Upstream key
+    const saveUpstreamBtn = $("#kp-save-upstream");
+    if (saveUpstreamBtn) {
+        saveUpstreamBtn.onclick = async () => {
+            const val = $("#kp-upstream-key").value.trim();
+            if (!val) { showToast("Enter an upstream API key", "error"); return; }
+            try {
+                await api.patch(`/keys/${key.id}`, { upstream_key: val });
+                showToast("Upstream key updated", "success");
+                $("#key-detail-dialog").close();
+                _rerender(renderKeys);
+            } catch (e) { showToast("Error: " + e.message, "error"); }
+        };
+    }
+    const removeUpstreamBtn = $("#kp-remove-upstream");
+    if (removeUpstreamBtn) {
+        removeUpstreamBtn.onclick = async () => {
+            try {
+                await api.patch(`/keys/${key.id}`, { upstream_key: "" });
+                showToast("Upstream key removed");
                 $("#key-detail-dialog").close();
                 _rerender(renderKeys);
             } catch (e) { showToast("Error: " + e.message, "error"); }

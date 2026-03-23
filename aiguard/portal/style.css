@@ -3328,6 +3328,28 @@ code { font-family: var(--mono); font-size: 0.85em; background: var(--bg); paddi
     font-size: 0.75rem;
 }
 
+.activation-key-field {
+    width: 100%;
+    max-width: 340px;
+    padding: 5px 10px;
+    font-size: 0.75rem;
+    font-family: var(--mono);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-input, var(--bg-card));
+    color: var(--text);
+    outline: none;
+    transition: border-color 0.15s;
+}
+.activation-key-field:focus {
+    border-color: var(--primary);
+}
+.activation-key-field::placeholder {
+    color: var(--text-muted);
+    font-family: var(--font);
+    font-style: italic;
+}
+
 /* ── Key Reveal Banner ───────────────────────────────────────────────── */
 
 .key-reveal-banner {
