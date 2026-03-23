@@ -319,7 +319,13 @@ async def _handle_proxy_request(request: Request, path: str) -> Any:
     for k, v in extra_headers.items():
         response.headers[k] = v
 
-    if not is_streaming:
+    # When upstream returned a non-2xx error on a streaming request, the
+    # forwarder now falls back to a buffered JSONResponse.  Detect that so
+    # we write the audit log synchronously instead of via the streaming
+    # callback (which already fired with None/None).
+    is_buffered_error = is_streaming and timing.get("response_body") is not None
+
+    if not is_streaming or is_buffered_error:
         # Extract token counts from buffered response
         input_tokens = None
         output_tokens = None
@@ -335,7 +341,7 @@ async def _handle_proxy_request(request: Request, path: str) -> Any:
             provider=provider.name,
             model=_model,
             path=path,
-            outcome=summary.outcome,
+            outcome=summary.outcome if not is_buffered_error else "error",
             findings=summary.all_findings,
             http_status=response.status_code,
             proxy_latency_ms=proxy_latency_ms,

@@ -180,38 +180,97 @@ async def _forward_streaming(
     body: bytes,
     t0: float,
     on_complete: "Callable[[int | None, int | None], None] | None" = None,
-) -> tuple[StreamingResponse, dict]:
+) -> tuple[StreamingResponse | JSONResponse, dict]:
     """
     Stream the upstream response back to the client.
 
-    Parses SSE ``data:`` lines on the fly to capture usage/token counts
-    from the final events.  When streaming finishes, calls ``on_complete``
-    (if provided) with (input_tokens, output_tokens).
+    Opens the upstream connection first to inspect status code and headers.
+    If upstream returns an error (non-2xx), falls back to a buffered JSON
+    response with the correct status code — this ensures SDKs/CLIs see the
+    real error instead of a 200 wrapping an error body.
+
+    For successful streaming responses, parses SSE ``data:`` lines on the
+    fly to capture usage/token counts from the final events.  When streaming
+    finishes, calls ``on_complete`` (if provided) with (input_tokens,
+    output_tokens).
     """
     import json as _json
 
     timing: dict = {"upstream_latency_ms": int((time.monotonic() - t0) * 1000)}
 
+    # Open the upstream connection — this reads status + headers but not body
+    req = client.build_request(method, url, headers=headers, content=body)
+    resp = await client.send(req, stream=True)
+    timing["upstream_latency_ms"] = int((time.monotonic() - t0) * 1000)
+
+    # ── Non-2xx: fall back to buffered error response ────────────────────
+    if resp.status_code >= 400:
+        try:
+            raw = await resp.aread()
+        except Exception:
+            raw = b""
+        finally:
+            await resp.aclose()
+
+        resp_headers = {
+            k: v
+            for k, v in resp.headers.items()
+            if k.lower() not in _EXCLUDED_RESPONSE_HEADERS
+        }
+
+        content = {}
+        if raw:
+            try:
+                content = _json.loads(raw.decode("utf-8"))
+            except Exception:
+                try:
+                    text = raw.decode("utf-8", errors="replace")
+                except Exception:
+                    text = "<binary response>"
+                content = {"error": {"message": text, "type": "upstream_error"}}
+
+        logger.warning(
+            "Upstream streaming request returned %d: %s",
+            resp.status_code,
+            content.get("error", {}).get("message", "")[:200],
+        )
+
+        if on_complete:
+            try:
+                on_complete(None, None)
+            except Exception:
+                pass
+
+        return (
+            JSONResponse(
+                content=content,
+                status_code=resp.status_code,
+                headers=resp_headers,
+            ),
+            {**timing, "response_body": content},
+        )
+
+    # ── 2xx: stream the response back ────────────────────────────────────
     async def stream_gen() -> AsyncGenerator[bytes, None]:
         last_data_lines: list[str] = []
         try:
-            async with client.stream(method, url, headers=headers, content=body) as resp:
-                timing["upstream_latency_ms"] = int((time.monotonic() - t0) * 1000)
-                buf = b""
-                async for chunk in resp.aiter_bytes():
-                    yield chunk
-                    # Parse SSE lines to capture usage data
-                    buf += chunk
-                    while b"\n" in buf:
-                        line, buf = buf.split(b"\n", 1)
-                        text = line.decode("utf-8", errors="replace").strip()
-                        if text.startswith("data:"):
-                            payload = text[5:].strip()
-                            if payload and payload != "[DONE]":
-                                last_data_lines.append(payload)
-                                if len(last_data_lines) > 5:
-                                    last_data_lines.pop(0)
+            buf = b""
+            async for chunk in resp.aiter_bytes():
+                yield chunk
+                # Parse SSE lines to capture usage data
+                buf += chunk
+                while b"\n" in buf:
+                    line, buf = buf.split(b"\n", 1)
+                    text = line.decode("utf-8", errors="replace").strip()
+                    if text.startswith("data:"):
+                        payload = text[5:].strip()
+                        if payload and payload != "[DONE]":
+                            last_data_lines.append(payload)
+                            if len(last_data_lines) > 5:
+                                last_data_lines.pop(0)
         finally:
+            await resp.aclose()
+
             # Extract usage from the last SSE events
             input_tokens = None
             output_tokens = None
@@ -244,11 +303,25 @@ async def _forward_streaming(
                 except Exception:
                     pass
 
+    # Forward upstream response headers (filtered) + anti-buffering headers
+    resp_headers = {
+        k: v
+        for k, v in resp.headers.items()
+        if k.lower() not in _EXCLUDED_RESPONSE_HEADERS
+    }
+    resp_headers["cache-control"] = "no-cache"
+    resp_headers["x-accel-buffering"] = "no"      # nginx / Azure proxy
+    resp_headers["x-content-type-options"] = "nosniff"
+
+    # Use upstream Content-Type (may be text/event-stream, application/x-ndjson, etc.)
+    upstream_content_type = resp.headers.get("content-type", "text/event-stream")
+
     return (
         StreamingResponse(
             stream_gen(),
-            media_type="text/event-stream",
-            headers={"cache-control": "no-cache"},
+            status_code=resp.status_code,
+            media_type=upstream_content_type,
+            headers=resp_headers,
         ),
         timing,
     )

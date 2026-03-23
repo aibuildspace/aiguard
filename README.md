@@ -70,98 +70,37 @@ guard shield test prompt_injection --message "ignore all previous instructions"
 ## How It Works
 
 ```mermaid
-graph LR
-    subgraph Clients
-        CC["☁ Claude Code"]
-        CU["☁ Cursor"]
-        CO["☁ Continue"]
-    end
+graph TB
+    CLIENT["Claude Code · OpenClaw"]
+    AUTH["🔐 Auth & Budget"]
+    SHIELDS["🛡 Shields · Prompt Injection · PII · Jailbreak · Policy"]
+    DECISION{"Outcome"}
+    BLOCK["⛔ Blocked"]
+    FWD["📡 Forward"]
+    LLM["Anthropic · OpenAI"]
+    AUDIT[("📝 Audit Log")]
 
-    subgraph "AIGuard Proxy"
-        direction TB
+    CLIENT --> AUTH --> SHIELDS --> DECISION
 
-        AUTH["🔐 Auth Middleware
-        Resolve org/user from API key
-        Passthrough or Key-vault mode"]
+    DECISION -- "🔴 threat" --> BLOCK
+    DECISION -- "✅ clean" --> FWD
 
-        EXTRACT["📨 Content Extraction
-        Provider-aware parsing
-        Normalize messages, system prompt,
-        tool results across formats"]
-
-        subgraph "Shield Runner"
-            direction TB
-            PI["🛡 Prompt Injection"]
-            PII["🔍 PII Detection"]
-            JB["🚫 Jailbreak"]
-            CP["📋 Content Policy"]
-            CUSTOM["🔌 Custom Shields
-            YAML + Python · hot-reload"]
-        end
-
-        DECISION{"Scan
-        Outcome"}
-
-        BUDGET["💰 Budget
-        Enforcement"]
-
-        FWD["📡 Forwarder
-        SSE streaming · connection pooling
-        W3C Trace Context propagation"]
-
-        AUDIT[("📝 Audit Log
-        request_id · tokens · latency
-        model · findings · trace_id")]
-    end
-
-    subgraph "LLM APIs"
-        ANTH["Anthropic API
-        Claude models"]
-        OAI["OpenAI API
-        GPT · o-series models"]
-    end
-
-    CC & CU & CO -->|"Bearer aip_org_xxx
-    or real API key"| AUTH
-    AUTH --> BUDGET
-    BUDGET -->|"Over limit"| BLOCK_B["⛔ 429
-    Budget exceeded"]
-    BUDGET --> EXTRACT
-    EXTRACT --> PI & PII & JB & CP & CUSTOM
-    PI & PII & JB & CP & CUSTOM --> DECISION
-
-    DECISION -->|"🟢 Clean / Log"| FWD
-    DECISION -->|"🟡 Warn"| FWD
-    DECISION -->|"🟠 Sanitize
-    Redact matched content"| FWD
-    DECISION -->|"🔴 Block"| BLOCK["⛔ 403
-    Findings returned"]
-
-    FWD -->|"/anthropic/*"| ANTH
-    FWD -->|"/openai/*"| OAI
-
-    ANTH & OAI -.->|"Streamed response
-    + token counts"| FWD
-    FWD -.->|"Response + X-AIGuard headers"| CC & CU & CO
-    FWD -.-> AUDIT
+    BLOCK -. "block response" .-> CLIENT
     BLOCK -.-> AUDIT
-    BLOCK_B -.-> AUDIT
 
-    style AUTH fill:#4a90d9,color:#fff
-    style EXTRACT fill:#7b68ee,color:#fff
-    style PI fill:#e74c3c,color:#fff
-    style PII fill:#e67e22,color:#fff
-    style JB fill:#e74c3c,color:#fff
-    style CP fill:#f39c12,color:#fff
-    style CUSTOM fill:#9b59b6,color:#fff
-    style DECISION fill:#2ecc71,color:#fff
-    style FWD fill:#1abc9c,color:#fff
-    style AUDIT fill:#34495e,color:#fff
-    style BUDGET fill:#f1c40f,color:#333
-    style BLOCK fill:#c0392b,color:#fff
-    style BLOCK_B fill:#c0392b,color:#fff
-    style ANTH fill:#d4a574,color:#333
-    style OAI fill:#74aa9c,color:#fff
+    FWD --> LLM
+    LLM -. "response" .-> FWD
+    FWD -. "response" .-> CLIENT
+    FWD -.-> AUDIT
+
+    style CLIENT fill:#7c5cfc,stroke:#5a3fd6,color:#fff,stroke-width:2px
+    style AUTH fill:#4a6fa5,stroke:#365480,color:#fff,stroke-width:1px
+    style SHIELDS fill:#2563eb,stroke:#1d4ed8,color:#fff,stroke-width:2px
+    style DECISION fill:#0d9488,stroke:#0f766e,color:#fff,stroke-width:2px
+    style FWD fill:#16a34a,stroke:#15803d,color:#fff,stroke-width:1px
+    style AUDIT fill:#64748b,stroke:#475569,color:#fff,stroke-width:1px
+    style BLOCK fill:#dc2626,stroke:#b91c1c,color:#fff,stroke-width:2px
+    style LLM fill:#d4a574,stroke:#b8895a,color:#1a1a2e,stroke-width:2px
 ```
 
 **Request lifecycle at a glance:**
