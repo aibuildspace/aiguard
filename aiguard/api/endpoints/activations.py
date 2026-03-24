@@ -59,6 +59,11 @@ def _proxy_base_url() -> str:
     return f"http://{host}:{settings.port}"
 
 
+def _normalise_url(url: str) -> str:
+    """Normalise localhost variants so URL comparisons succeed."""
+    return url.replace("://localhost:", "://127.0.0.1:").replace("://localhost/", "://127.0.0.1/")
+
+
 def _detect_tool(tool: str) -> bool:
     """Check whether a tool binary or config directory exists."""
     if tool == "claude_code":
@@ -88,7 +93,7 @@ def _check_claude_code(proxy_base: str) -> dict:
         current_key = env.get("ANTHROPIC_API_KEY", "")
         expected = f"{proxy_base}/anthropic"
 
-        if current_url == expected:
+        if _normalise_url(current_url) == _normalise_url(expected):
             key_info = ""
             if current_key and current_key.startswith("aip_"):
                 key_info = f", API_KEY → {current_key[:16]}…"
@@ -184,7 +189,7 @@ def _check_openclaw(proxy_base: str) -> dict:
                 continue
 
             # Check if baseUrl points at our proxy
-            if base_url.startswith(proxy_base):
+            if _normalise_url(base_url).startswith(_normalise_url(proxy_base)):
                 key_info = ""
                 if auth_key and auth_key.startswith("aip_"):
                     key_info = f", apiKey → {auth_key[:16]}…"
@@ -213,15 +218,10 @@ def _write_openclaw(proxy_url: str, api_key: str | None = None) -> dict:
 
     data = json.loads(OPENCLAW_CONFIG.read_text())
 
-    # Ensure models.providers.openai exists
-    models = data.setdefault("models", {})
-    providers = models.setdefault("providers", {})
-    openai_cfg = providers.setdefault("openai", {})
-
-    # Set proxy base URL
+    # Merge into existing config — only touch the openai provider block
+    openai_cfg = data.setdefault("models", {}).setdefault("providers", {}).setdefault("openai", {})
     openai_cfg["baseUrl"] = f"{proxy_url}/openai/v1"
-    if "models" not in openai_cfg:
-        openai_cfg["models"] = []
+    openai_cfg.setdefault("models", [])  # OpenClaw requires this array
 
     OPENCLAW_CONFIG.write_text(json.dumps(data, indent=2) + "\n")
 
@@ -229,9 +229,10 @@ def _write_openclaw(proxy_url: str, api_key: str | None = None) -> dict:
     if api_key and OPENCLAW_AUTH_PROFILES.exists():
         auth_data = json.loads(OPENCLAW_AUTH_PROFILES.read_text())
         profile = auth_data.setdefault("profiles", {}).setdefault("openai:default", {})
-        # Backup original key for deactivation restore
-        if not profile.get("_original_key") and profile.get("key"):
-            profile["_original_key"] = profile["key"]
+        # Backup original key for deactivation restore (skip if already a proxy key)
+        existing = profile.get("key", "")
+        if not profile.get("_original_key") and existing and not existing.startswith("aip_"):
+            profile["_original_key"] = existing
         profile["key"] = api_key
         profile["type"] = "api_key"
         profile["provider"] = "openai"

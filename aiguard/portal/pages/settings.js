@@ -29,19 +29,19 @@ async function renderSettings() {
         var slug = (idPrefix ? idPrefix + "-" : "") + tool.replace("_", "-");
         var installed = st.installed !== false;
         var actionsHtml = "";
-        var keyInputHtml = "";
+        var cliHint = "";
 
         if (!installed) {
             actionsHtml = '<span class="activation-badge not-installed">Not Installed</span>';
         } else if (st.active) {
-            actionsHtml = '<span id="' + slug + '-badge"><span class="activation-badge active">Active</span></span>'
-                + '<button class="btn btn-outline-danger btn-xs" id="' + slug + '-deactivate-btn">Deactivate</button>';
+            actionsHtml = '<span id="' + slug + '-badge"><span class="activation-badge active">Active</span></span>';
         } else {
-            actionsHtml = '<span id="' + slug + '-badge"><span class="activation-badge inactive">Inactive</span></span>'
-                + '<button class="btn btn-primary btn-xs" id="' + slug + '-activate-btn">Activate</button>';
-            keyInputHtml = '<div class="activation-key-input">'
-                + '<input type="password" id="' + slug + '-api-key" placeholder="aip_... (API key for proxy auth)" class="activation-key-field">'
-                + '</div>';
+            actionsHtml = '<span id="' + slug + '-badge"><span class="activation-badge inactive">Inactive</span></span>';
+        }
+
+        if (installed && !idPrefix) {
+            var cmd = tool === "claude_code" ? "guard setup claude" : "guard setup openclaw";
+            cliHint = '<p class="activation-cli-hint"><code>' + cmd + '</code></p>';
         }
 
         return '<div class="activation-row">'
@@ -52,7 +52,7 @@ async function renderSettings() {
             + '</div>'
             + '<div class="activation-actions">' + actionsHtml + '</div>'
             + '<div class="activation-detail-wrap">'
-            +   keyInputHtml
+            +   cliHint
             +   '<p class="activation-detail" id="' + slug + '-detail">' + esc(st.detail) + '</p>'
             + '</div>'
             + '</div>';
@@ -175,103 +175,6 @@ async function renderSettings() {
     + '</div>'; // settings-page
 
     $content().innerHTML = html;
-
-    // ══════════════════════════════════════════════════════════════════════
-    // ACTIVATION — configure tool with proxy URL and API key
-    // ══════════════════════════════════════════════════════════════════════
-
-    async function _handleActivate(tool, btnOverride) {
-        var slug = tool.replace("_", "-");
-        var btn = btnOverride || $("#" + slug + "-activate-btn");
-        if (!btn) return;
-
-        // Read API key from the inline input — check the button's card first,
-        // then fall back to the main Tool Integrations card input.
-        var keyInput = null;
-        // Determine which card this button belongs to by checking for gf- prefix
-        var btnId = btn.id || "";
-        if (btnId.startsWith("gf-")) {
-            keyInput = $("#gf-" + slug + "-api-key");
-        }
-        if (!keyInput) {
-            keyInput = $("#" + slug + "-api-key");
-        }
-        var apiKey = keyInput ? keyInput.value.trim() : "";
-
-        if (!apiKey) {
-            showToast("Enter an API key (aip_...) to activate", "error");
-            if (keyInput) keyInput.focus();
-            return;
-        }
-
-        btn.disabled = true;
-        btn.textContent = "Activating...";
-        try {
-            var res = await api.post("/activations/" + slug + "/activate", { api_key: apiKey });
-            if (res.ok) {
-                showToast((tool === "claude_code" ? "Claude Code" : "OpenClaw") + " activated", "success");
-                _rerender(renderSettings);
-            } else {
-                showToast(res.detail || "Failed", "error");
-                btn.disabled = false;
-                btn.textContent = "Activate";
-            }
-        } catch (e) {
-            showToast("Failed: " + e.message, "error");
-            btn.disabled = false;
-            btn.textContent = "Activate";
-        }
-    }
-
-    // ── Deactivate handler ───────────────────────────────────────────────
-    async function _handleDeactivate(tool, btnOverride) {
-        var slug = tool.replace("_", "-");
-        var btn = btnOverride || $("#" + slug + "-deactivate-btn");
-        if (!btn) return;
-        btn.disabled = true;
-        btn.textContent = "Deactivating...";
-        try {
-            var res = await api.post("/activations/" + slug + "/deactivate");
-            if (res.ok) {
-                showToast((tool === "claude_code" ? "Claude Code" : "OpenClaw") + " deactivated", "success");
-                _rerender(renderSettings);
-            } else {
-                showToast(res.detail || "Failed", "error");
-                btn.disabled = false;
-                btn.textContent = "Deactivate";
-            }
-        } catch (e) {
-            showToast("Failed: " + e.message, "error");
-            btn.disabled = false;
-            btn.textContent = "Deactivate";
-        }
-    }
-
-    // ── Bind activation buttons ──────────────────────────────────────────
-    ["claude_code", "openclaw"].forEach(function(tool) {
-        var slug = tool.replace("_", "-");
-        var activateBtn = $("#" + slug + "-activate-btn");
-        var deactivateBtn = $("#" + slug + "-deactivate-btn");
-        if (activateBtn && activations[tool].installed !== false) {
-            activateBtn.onclick = function() { _handleActivate(tool); };
-        }
-        if (deactivateBtn) {
-            deactivateBtn.onclick = function() { _handleDeactivate(tool); };
-        }
-    });
-
-    // Grafana card activation buttons — same direct call
-    ["claude_code", "openclaw"].forEach(function(tool) {
-        var slug = "gf-" + tool.replace("_", "-");
-        var activateBtn = $("#" + slug + "-activate-btn");
-        var deactivateBtn = $("#" + slug + "-deactivate-btn");
-        if (activateBtn && activations[tool].installed !== false) {
-            activateBtn.onclick = function() { _handleActivate(tool, activateBtn); };
-        }
-        if (deactivateBtn) {
-            deactivateBtn.onclick = function() { _handleDeactivate(tool, deactivateBtn); };
-        }
-    });
 
     // ══════════════════════════════════════════════════════════════════════
     // GRAFANA LOGIC

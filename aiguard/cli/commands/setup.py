@@ -60,9 +60,11 @@ def _configure_openclaw(proxy_url: str, api_key: str) -> bool:
     """Configure OpenClaw to route through AIGuard."""
     base_url = proxy_url.rstrip("/") + "/openai/v1"
 
-    # Write baseUrl to openclaw.json
+    # Write baseUrl to openclaw.json (merge into existing config)
     data = _read_json(OPENCLAW_CONFIG)  # returns {} if file doesn't exist
-    _set_nested(data, "models.providers.openai.baseUrl", base_url)
+    openai_cfg = data.setdefault("models", {}).setdefault("providers", {}).setdefault("openai", {})
+    openai_cfg["baseUrl"] = base_url
+    openai_cfg.setdefault("models", [])  # OpenClaw requires this array
     _write_json(OPENCLAW_CONFIG, data)  # creates parent dirs if needed
 
     # Write API key to auth-profiles.json (where gateway reads it)
@@ -70,9 +72,10 @@ def _configure_openclaw(proxy_url: str, api_key: str) -> bool:
         auth_data = _read_json(OPENCLAW_AUTH_PROFILES)
         profiles = auth_data.setdefault("profiles", {})
         profile = profiles.setdefault("openai:default", {})
-        # Backup original key for reset
-        if not profile.get("_original_key") and profile.get("key"):
-            profile["_original_key"] = profile["key"]
+        # Backup original key for reset (skip if already a proxy key)
+        existing = profile.get("key", "")
+        if not profile.get("_original_key") and existing and not existing.startswith("aip_"):
+            profile["_original_key"] = existing
         profile["key"] = api_key
         profile["type"] = "api_key"
         profile["provider"] = "openai"
@@ -116,6 +119,9 @@ def _restart_openclaw() -> None:
         result = _run_openclaw(["openclaw", "gateway", "status"], timeout=5)
         if result.returncode != 0:
             if _check_node_error(result):
+                # openclaw CLI won't work, but gateway may be running
+                # Kill it so TUI respawns with fresh config
+                _kill_openclaw_gateway()
                 return
             # Not running — try to start it
             start_result = _run_openclaw(["openclaw", "gateway", "start"])
@@ -129,9 +135,25 @@ def _restart_openclaw() -> None:
         if restart_result.returncode == 0:
             console.print("  [success]✓[/success] OpenClaw gateway restarted")
         elif not _check_node_error(restart_result):
-            console.print("  [warning]⚠[/warning]  Could not restart — run [accent]openclaw gateway restart[/accent] manually")
+            # Fallback: kill the gateway process so TUI respawns it
+            _kill_openclaw_gateway()
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
-        console.print("  [warning]⚠[/warning]  Could not restart gateway — run [accent]openclaw gateway restart[/accent] manually")
+        _kill_openclaw_gateway()
+
+
+def _kill_openclaw_gateway() -> None:
+    """Kill the openclaw-gateway process so the TUI respawns it with fresh config."""
+    try:
+        result = subprocess.run(
+            ["pkill", "-f", "openclaw-gateway"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0:
+            console.print("  [success]✓[/success] OpenClaw gateway stopped — TUI will restart it automatically")
+        else:
+            console.print("  [warning]⚠[/warning]  Kill the OpenClaw TUI and re-open it to apply changes")
+    except Exception:
+        console.print("  [warning]⚠[/warning]  Kill the OpenClaw TUI and re-open it to apply changes")
 
 
 def _show_openclaw_status() -> None:
