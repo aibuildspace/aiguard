@@ -107,21 +107,39 @@ class ScanContext:
 
     @property
     def latest_turn(self) -> list[dict]:
-        """Return only the last user message (the newest content in this request).
+        """Return only the newest user content in this request.
 
         In a multi-turn conversation the earlier messages were already
         scanned when they were first sent, so shields should focus on new
-        content only.  We return just the final message if it's a user
-        message, otherwise scan nothing (assistant/system trailing
-        messages don't need scanning).
+        content only.
+
+        Handles the "merged content blocks" case where a client (e.g.
+        Claude Code) resends a previously-blocked user message merged
+        with the new message as multiple text blocks inside one user
+        message.  When that happens we return only the *last* text block
+        so we don't re-trigger on already-blocked content.
         """
         if not self.messages:
             return []
 
         last = self.messages[-1]
-        if last.get("role") == "user":
-            return [last]
-        return []
+        if last.get("role") != "user":
+            return []
+
+        content = last.get("content")
+
+        # Anthropic-style content block list: [{"type":"text","text":"..."},...]
+        # If there are multiple text blocks, the client likely merged turns.
+        # Only scan the last text block (the genuinely new content).
+        if isinstance(content, list):
+            text_blocks = [
+                b for b in content
+                if isinstance(b, dict) and b.get("type") == "text"
+            ]
+            if len(text_blocks) > 1:
+                return [{"role": "user", "content": [text_blocks[-1]]}]
+
+        return [last]
 
     @property
     def all_user_text(self) -> str:

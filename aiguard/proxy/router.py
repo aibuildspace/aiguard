@@ -41,6 +41,38 @@ def _resolve_upstream_from_env(provider_name: str) -> str | None:
     return None
 
 
+def _format_provider_error(
+    provider_name: str,
+    error_type: str,
+    message: str,
+    request_id: str | None = None,
+) -> dict:
+    """Format an error response to match the upstream provider's error shape.
+
+    This ensures SDKs (e.g. Anthropic Python/TS, OpenAI Python) parse the
+    error correctly and treat it as an API error rather than embedding the
+    raw body into the conversation.
+    """
+    if provider_name == "anthropic":
+        return {
+            "type": "error",
+            "error": {
+                "type": error_type,
+                "message": message,
+            },
+        }
+    # OpenAI / generic
+    body: dict = {
+        "error": {
+            "type": error_type,
+            "message": message,
+        },
+    }
+    if request_id:
+        body["error"]["request_id"] = request_id
+    return body
+
+
 @router.api_route(
     "/{provider_prefix}/{path:path}",
     methods=["GET", "POST", "PUT", "DELETE"],
@@ -99,7 +131,7 @@ async def _handle_proxy_request(request: Request, path: str) -> Any:
             path=path,
             outcome="blocked",
             findings=[],
-            http_status=429,
+            http_status=402,
             proxy_latency_ms=int((time.monotonic() - t_start) * 1000),
             policy={},
             trace_id=trace_id,
@@ -107,14 +139,22 @@ async def _handle_proxy_request(request: Request, path: str) -> Any:
             parent_span_id=parent_span_id,
             message_preview="[budget exceeded]",
         )
+        error_body = _format_provider_error(
+            provider_name=provider.name,
+            error_type="budget_exceeded",
+            message=budget_block["error"]["message"],
+        )
+        # Use 402 (Payment Required) instead of 429 so SDKs don't
+        # auto-retry endlessly — budget blocks are not transient.
         return JSONResponse(
-            status_code=429,
+            status_code=402,
             headers={
                 "X-AIGuard-Request-ID": request_id,
                 "X-AIGuard-Trace-ID": trace_id,
+                "Retry-After": "86400",
                 "traceparent": f"00-{trace_id}-{span_id}-01",
             },
-            content=budget_block,
+            content=error_body,
         )
 
     # Parse request body
@@ -183,22 +223,14 @@ async def _handle_proxy_request(request: Request, path: str) -> Any:
 
     # Handle block
     if summary.outcome == "blocked":
-        findings_info = [
-            {
-                "shield_id": f.shield_id,
-                "pattern_id": f.pattern_id,
-                "severity": f.severity,
-                "action": f.action,
-                "matched_text": f.matched_text[:100],
-            }
-            for f in summary.all_findings
-        ]
         # Build a short human-readable summary for tools/clients
         # Only list shields whose effective action was actually "block"
         blocking_shields = sorted(
             {r.shield_id for r in summary.results if r.effective_action == "block"}
         )
         short_msg = f"Blocked by {', '.join(blocking_shields)}" if blocking_shields else "Request blocked by security policy"
+
+        # Write full details to audit log (internal only — includes matched_text)
         _write_audit_log(
             request_id=request_id,
             identity=identity,
@@ -216,6 +248,17 @@ async def _handle_proxy_request(request: Request, path: str) -> Any:
             message_preview=msg_preview,
             request_body=body if isinstance(body, dict) else None,
         )
+
+        # Client-facing response: short message only, no sensitive data.
+        # Full findings are available in the audit log / portal.
+        # Format to match the upstream provider's error shape so SDKs
+        # handle it as a proper API error (not a conversation response).
+        error_body = _format_provider_error(
+            provider_name=provider.name,
+            error_type="content_policy_violation",
+            message=short_msg,
+            request_id=request_id,
+        )
         return JSONResponse(
             status_code=403,
             headers={
@@ -223,14 +266,7 @@ async def _handle_proxy_request(request: Request, path: str) -> Any:
                 "X-AIGuard-Trace-ID": trace_id,
                 "traceparent": f"00-{trace_id}-{span_id}-01",
             },
-            content={
-                "error": {
-                    "type": "content_policy_violation",
-                    "message": short_msg,
-                    "request_id": request_id,
-                    "findings": findings_info,
-                }
-            },
+            content=error_body,
         )
 
     # Use sanitized body if any sanitization ran
@@ -262,6 +298,7 @@ async def _handle_proxy_request(request: Request, path: str) -> Any:
         extra_headers["X-AIGuard-Warning"] = f"Shields triggered: {shields_triggered}"
         extra_headers["X-AIGuard-Outcome"] = summary.outcome
         # Include findings summary so the portal can display details
+        # Redact matched_text to avoid leaking sensitive content in headers
         import json as _json
         warned_findings = [
             {
@@ -269,7 +306,6 @@ async def _handle_proxy_request(request: Request, path: str) -> Any:
                 "pattern_id": f.pattern_id,
                 "severity": f.severity,
                 "action": f.action,
-                "matched_text": f.matched_text[:100],
             }
             for f in summary.all_findings
         ]
@@ -338,9 +374,6 @@ async def _handle_proxy_request(request: Request, path: str) -> Any:
         # 1. Top-level previous_response_id
         if "previous_response_id" in forward_body:
             stale_id = forward_body.pop("previous_response_id")
-            logger.warning(
-                "Stripping stale previous_response_id=%s for retry", stale_id,
-            )
             stripped = True
 
         # 2. Stale rs_... items embedded in input[] (e.g. reasoning refs)
@@ -349,10 +382,6 @@ async def _handle_proxy_request(request: Request, path: str) -> Any:
             cleaned = []
             for item in input_items:
                 if isinstance(item, dict) and isinstance(item.get("id"), str) and item["id"].startswith("rs_"):
-                    logger.warning(
-                        "Stripping stale input item type=%s id=%s for retry",
-                        item.get("type", "?"), item["id"],
-                    )
                     stripped = True
                     continue
                 cleaned.append(item)
@@ -533,9 +562,12 @@ import uuid as _uuid
 
 async def _check_budget_enforcement(identity: Any) -> dict | None:
     """
-    Check whether any enforcing budget attached to this identity's API key
-    or user has been exceeded.  Returns an error dict to send back if the
-    request must be blocked, or None if the request may proceed.
+    Check whether any enforcing budget attached to this identity's API key,
+    user, or org has been exceeded.  Returns an error dict to send back if
+    the request must be blocked, or None if the request may proceed.
+
+    Covers both normal (aip_ key) and passthrough (direct upstream key) modes.
+    In passthrough mode, org-level budgets are still enforced.
     """
     from sqlalchemy import select, or_
     from aiguard.db.engine import async_session_factory
@@ -543,21 +575,39 @@ async def _check_budget_enforcement(identity: Any) -> dict | None:
 
     api_key_id = identity.api_key.id
     user_id = identity.api_key.user_id
-
-    # Passthrough keys have no budgets
-    if api_key_id == _PASSTHROUGH_KEY_UUID:
-        return None
+    org_id = getattr(identity.api_key, "org_id", None)
+    is_passthrough = api_key_id == _PASSTHROUGH_KEY_UUID
 
     try:
         async with async_session_factory() as session:
             conditions = []
-            if user_id:
-                conditions.append(Budget.user_id == user_id)
-            conditions.append(Budget.api_key_id == api_key_id)
 
-            result = await session.execute(
-                select(Budget).where(or_(*conditions))
-            )
+            if is_passthrough:
+                # Passthrough mode: no real user/key identity, so check
+                # ALL enforcing budgets.  This ensures passthrough traffic
+                # (e.g. Claude Code with a direct API key) is blocked when
+                # ANY budget is exceeded — whether org-scoped or key-scoped.
+                result = await session.execute(
+                    select(Budget).where(
+                        Budget.enforce == True,  # noqa: E712
+                    )
+                )
+            else:
+                # Normal mode: check per-key, per-user, and per-org budgets
+                if user_id:
+                    conditions.append(Budget.user_id == user_id)
+                conditions.append(Budget.api_key_id == api_key_id)
+                if org_id:
+                    # Org-level budgets (org_id set, user_id & api_key_id NULL)
+                    conditions.append(
+                        (Budget.org_id == org_id)
+                        & Budget.user_id.is_(None)
+                        & Budget.api_key_id.is_(None)
+                    )
+                result = await session.execute(
+                    select(Budget).where(or_(*conditions))
+                )
+
             budgets = result.scalars().all()
 
             for b in budgets:
@@ -566,9 +616,10 @@ async def _check_budget_enforcement(identity: Any) -> dict | None:
                 if b.current_month_usage_usd >= b.monthly_limit_usd:
                     limit = b.monthly_limit_usd
                     used = round(b.current_month_usage_usd, 4)
+                    scope = "org" if (b.user_id is None and b.api_key_id is None) else "key/user"
                     logger.warning(
-                        "Budget exceeded: limit=$%.2f used=$%.4f key=%s",
-                        limit, used, str(api_key_id)[:8],
+                        "Budget exceeded (%s): limit=$%.2f used=$%.4f key=%s",
+                        scope, limit, used, str(api_key_id)[:8],
                     )
                     return {
                         "error": {
@@ -577,7 +628,14 @@ async def _check_budget_enforcement(identity: Any) -> dict | None:
                         }
                     }
     except Exception as exc:
-        logger.debug("Budget enforcement check failed: %s", exc)
+        # Fail-closed: if we can't check budgets, block the request to be safe
+        logger.warning("Budget enforcement check failed (blocking request): %s", exc)
+        return {
+            "error": {
+                "type": "budget_check_error",
+                "message": "Unable to verify budget — request blocked as a precaution",
+            }
+        }
 
     return None
 
@@ -654,18 +712,29 @@ async def _accumulate_budget(
     cost_usd = _estimate_cost(model, input_tokens, output_tokens)
     user_id = identity.api_key.user_id
     api_key_id = identity.api_key.id
-
-    # Skip if passthrough / no real IDs
-    if api_key_id == _PASSTHROUGH_KEY_UUID:
-        return
+    org_id = getattr(identity.api_key, "org_id", None)
+    is_passthrough = api_key_id == _PASSTHROUGH_KEY_UUID
 
     async with async_session_factory() as session:
-        conditions = []
-        if user_id:
-            conditions.append(Budget.user_id == user_id)
-        conditions.append(Budget.api_key_id == api_key_id)
+        if is_passthrough:
+            # Passthrough mode: accumulate to ALL budgets so that
+            # passthrough usage is tracked everywhere (same logic as
+            # the enforcement check).
+            result = await session.execute(select(Budget))
+        else:
+            conditions = []
+            if user_id:
+                conditions.append(Budget.user_id == user_id)
+            conditions.append(Budget.api_key_id == api_key_id)
+            if org_id:
+                # Also accumulate to org-level budgets
+                conditions.append(
+                    (Budget.org_id == org_id)
+                    & Budget.user_id.is_(None)
+                    & Budget.api_key_id.is_(None)
+                )
+            result = await session.execute(select(Budget).where(or_(*conditions)))
 
-        result = await session.execute(select(Budget).where(or_(*conditions)))
         budgets = result.scalars().all()
 
         for b in budgets:

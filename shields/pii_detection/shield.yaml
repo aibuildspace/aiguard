@@ -16,7 +16,7 @@ targets:
 - messages
 - tool_results
 phase: pre_request
-default_action: warn
+default_action: block
 severity: medium
 patterns:
 - id: ssn_us

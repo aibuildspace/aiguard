@@ -65,6 +65,9 @@ def _add_missing_columns(conn) -> None:
             ("scan_duration_us", "INTEGER"),
             ("message_preview", "TEXT"),
         ],
+        "budgets": [
+            ("org_id", "VARCHAR(36)"),
+        ],
     }
 
     for table_name, columns in migrations.items():

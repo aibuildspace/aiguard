@@ -294,8 +294,12 @@ def setup_interactive(
 def setup_openclaw(
     url: str = typer.Option(None, "--url", "-u", help="AIGuard proxy URL"),
     key: str = typer.Option(None, "--key", "-k", help="AIGuard API key"),
+    default: bool = typer.Option(False, "--default", "-d", help="Reset to default (remove proxy)"),
 ):
-    """Configure OpenClaw to route through AIGuard."""
+    """Configure OpenClaw to route through AIGuard, or reset to defaults."""
+    if default:
+        _reset_openclaw()
+        return
     if not url:
         url = questionary.text(
             "AIGuard proxy URL:",
@@ -315,8 +319,12 @@ def setup_openclaw(
 def setup_claude(
     url: str = typer.Option(None, "--url", "-u", help="AIGuard proxy URL"),
     key: str = typer.Option(None, "--key", "-k", help="AIGuard API key"),
+    default: bool = typer.Option(False, "--default", "-d", help="Reset to default (remove proxy)"),
 ):
-    """Configure Claude Code to route through AIGuard."""
+    """Configure Claude Code to route through AIGuard, or reset to defaults."""
+    if default:
+        _reset_claude()
+        return
     if not url:
         url = questionary.text(
             "AIGuard proxy URL:",

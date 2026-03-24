@@ -3,9 +3,10 @@
 async function renderCosting() {
     $content().innerHTML = `<div class="section-header"><h2>Costing &amp; Budgets</h2></div><p style="color:var(--text-muted)">Loading...</p>`;
     try {
-        const [users, budgets] = await Promise.all([
+        const [users, budgets, orgs] = await Promise.all([
             api.get("/users").catch(() => []),
             api.get("/budgets").catch(() => []),
+            api.get("/orgs").catch(() => []),
         ]);
         const budgetMap = Object.fromEntries(budgets.map(b => [b.user_id, b]));
 
@@ -36,14 +37,27 @@ async function renderCosting() {
             <!-- Budgets Section -->
             <div class="dash-section" style="margin-top:8px">
                 <div class="dash-section-header">
-                    <h3>User Budgets</h3>
-                    <button class="btn btn-primary btn-sm" id="toggle-add-budget">+ Assign Budget</button>
+                    <h3>Budgets</h3>
+                    <button class="btn btn-primary btn-sm" id="toggle-add-budget">+ Add Budget</button>
                 </div>
 
                 <div class="card create-form" id="add-budget-form" style="display:none;margin-bottom:16px">
-                    <h4 style="margin-bottom:12px">Assign Budget to User</h4>
+                    <h4 style="margin-bottom:12px">Add Budget</h4>
                     <div class="form-row">
                         <div class="form-group">
+                            <label>Scope</label>
+                            <select id="budget-scope">
+                                <option value="org">Org-wide (all traffic, incl. passthrough)</option>
+                                <option value="user">Per User</option>
+                            </select>
+                        </div>
+                        <div class="form-group" id="budget-org-group">
+                            <label>Organization</label>
+                            <select id="budget-org">
+                                ${orgs.map(o => `<option value="${o.id}">${esc(o.name)} (${esc(o.slug)})</option>`).join("")}
+                            </select>
+                        </div>
+                        <div class="form-group" id="budget-user-group" style="display:none">
                             <label>User</label>
                             <select id="budget-user">
                                 <option value="">-- Select user --</option>
@@ -62,7 +76,7 @@ async function renderCosting() {
                             </select>
                         </div>
                     </div>
-                    <button class="btn btn-primary" id="submit-add-budget">Assign Budget</button>
+                    <button class="btn btn-primary" id="submit-add-budget">Add Budget</button>
                 </div>
 
                 <div id="budget-list"></div>
@@ -92,17 +106,32 @@ async function renderCosting() {
             f.style.display = f.style.display === "none" ? "block" : "none";
         };
 
+        // Scope toggle — show/hide user vs org fields
+        $("#budget-scope").onchange = () => {
+            const scope = $("#budget-scope").value;
+            $("#budget-org-group").style.display = scope === "org" ? "" : "none";
+            $("#budget-user-group").style.display = scope === "user" ? "" : "none";
+        };
+
         // Submit budget
         $("#submit-add-budget").onclick = async () => {
-            const userId = $("#budget-user").value;
-            if (!userId) { showToast("Select a user", "warning"); return; }
+            const scope = $("#budget-scope").value;
+            const payload = {
+                monthly_limit_usd: $("#budget-limit").value !== '' ? parseFloat($("#budget-limit").value) : 10.0,
+                enforce: $("#budget-enforce").value === "true",
+            };
+            if (scope === "org") {
+                const orgId = $("#budget-org").value;
+                if (!orgId) { showToast("Select an organization", "warning"); return; }
+                payload.org_id = orgId;
+            } else {
+                const userId = $("#budget-user").value;
+                if (!userId) { showToast("Select a user", "warning"); return; }
+                payload.user_id = userId;
+            }
             try {
-                await api.post("/budgets", {
-                    user_id: userId,
-                    monthly_limit_usd: $("#budget-limit").value !== '' ? parseFloat($("#budget-limit").value) : 10.0,
-                    enforce: $("#budget-enforce").value === "true",
-                });
-                showToast("Budget assigned");
+                await api.post("/budgets", payload);
+                showToast("Budget created");
                 _rerender(renderCosting);
             } catch (e) {
                 showToast("Error: " + e.message, "error");
@@ -223,7 +252,7 @@ function _renderBudgetList(budgets) {
         <div class="table-wrap">
             <table>
                 <thead><tr>
-                    <th>User</th>
+                    <th>Scope</th>
                     <th>Monthly Limit</th>
                     <th>Current Usage</th>
                     <th>% Used</th>
@@ -234,11 +263,18 @@ function _renderBudgetList(budgets) {
                 <tbody>
                     ${budgets.map(b => {
                         const pctClass = b.pct_used >= 100 ? 'danger' : b.pct_used >= 80 ? 'warning' : 'success';
+                        const isOrg = b.org_id && !b.user_id && !b.api_key_id;
+                        const isKey = !!b.api_key_id;
+                        let scopeLabel;
+                        if (isOrg) {
+                            scopeLabel = `<strong>${esc(b.org_name || 'Org-wide')}</strong><br><small style="color:var(--text-muted)">All traffic (incl. passthrough)</small>`;
+                        } else if (isKey) {
+                            scopeLabel = `<strong>${esc(b.key_label || b.key_prefix || 'API Key')}</strong>${b.user_name ? `<br><small style="color:var(--text-muted)">${esc(b.user_name)}</small>` : ''}`;
+                        } else {
+                            scopeLabel = `<strong>${esc(b.user_name || 'User')}</strong>${b.user_email ? `<br><small style="color:var(--text-muted)">${esc(b.user_email)}</small>` : ''}`;
+                        }
                         return `<tr>
-                            <td>
-                                <strong>${esc(b.user_name || 'Unknown')}</strong>
-                                ${b.user_email ? `<br><small style="color:var(--text-muted)">${esc(b.user_email)}</small>` : ''}
-                            </td>
+                            <td>${scopeLabel}</td>
                             <td>${_formatCost(b.monthly_limit_usd)}</td>
                             <td>${_formatCost(b.current_month_usage_usd)}</td>
                             <td>

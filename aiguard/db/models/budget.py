@@ -17,7 +17,11 @@ class Budget(Base):
     __tablename__ = "budgets"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    # A budget can be tied to a user, an API key, or both.  At least one must be set.
+    # A budget can be scoped to an org (applies to ALL traffic including passthrough),
+    # a user, an API key, or a combination.  At least one scope must be set.
+    org_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("orgs.id", ondelete="CASCADE"), nullable=True, index=True
+    )
     user_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
     )

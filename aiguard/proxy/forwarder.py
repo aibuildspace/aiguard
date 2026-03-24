@@ -229,7 +229,7 @@ async def _forward_streaming(
                     text = "<binary response>"
                 content = {"error": {"message": text, "type": "upstream_error"}}
 
-        logger.warning(
+        logger.debug(
             "Upstream streaming request returned %d: %s",
             resp.status_code,
             content.get("error", {}).get("message", "")[:200],

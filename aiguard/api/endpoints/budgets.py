@@ -11,11 +11,13 @@ from aiguard.db.engine import async_session_factory
 from aiguard.db.models.budget import Budget
 from aiguard.db.models.user import User
 from aiguard.db.models.api_key import ApiKey
+from aiguard.db.models.org import Org
 
 router = APIRouter(prefix="/budgets", tags=["budgets"])
 
 
 class BudgetCreate(BaseModel):
+    org_id: str | None = None
     user_id: str | None = None
     api_key_id: str | None = None
     monthly_limit_usd: float = 10.0
@@ -29,6 +31,7 @@ class BudgetUpdate(BaseModel):
 
 class BudgetResponse(BaseModel):
     id: str
+    org_id: str | None = None
     user_id: str | None = None
     api_key_id: str | None = None
     monthly_limit_usd: float
@@ -41,6 +44,7 @@ class BudgetResponse(BaseModel):
     created_at: str
     updated_at: str
     # Enriched fields
+    org_name: str | None = None
     user_name: str | None = None
     user_email: str | None = None
     key_label: str | None = None
@@ -50,10 +54,14 @@ class BudgetResponse(BaseModel):
 
 @router.post("", response_model=BudgetResponse, status_code=201)
 async def create_budget(data: BudgetCreate):
-    if not data.user_id and not data.api_key_id:
-        raise HTTPException(status_code=400, detail="Either user_id or api_key_id is required")
+    if not data.user_id and not data.api_key_id and not data.org_id:
+        raise HTTPException(status_code=400, detail="At least one of org_id, user_id, or api_key_id is required")
     async with async_session_factory() as session:
         # Validate references
+        if data.org_id:
+            org = await session.get(Org, uuid.UUID(data.org_id))
+            if not org:
+                raise HTTPException(status_code=404, detail="Organization not found")
         if data.user_id:
             user = await session.get(User, uuid.UUID(data.user_id))
             if not user:
@@ -64,7 +72,13 @@ async def create_budget(data: BudgetCreate):
                 raise HTTPException(status_code=404, detail="API key not found")
         # Check no duplicate
         q = select(Budget)
-        if data.user_id and not data.api_key_id:
+        if data.org_id and not data.user_id and not data.api_key_id:
+            q = q.where(
+                Budget.org_id == uuid.UUID(data.org_id),
+                Budget.user_id.is_(None),
+                Budget.api_key_id.is_(None),
+            )
+        elif data.user_id and not data.api_key_id:
             q = q.where(Budget.user_id == uuid.UUID(data.user_id), Budget.api_key_id.is_(None))
         elif data.api_key_id and not data.user_id:
             q = q.where(Budget.api_key_id == uuid.UUID(data.api_key_id), Budget.user_id.is_(None))
@@ -74,6 +88,7 @@ async def create_budget(data: BudgetCreate):
         if existing.scalar_one_or_none():
             raise HTTPException(status_code=409, detail="Budget already exists for this target")
         budget = Budget(
+            org_id=uuid.UUID(data.org_id) if data.org_id else None,
             user_id=uuid.UUID(data.user_id) if data.user_id else None,
             api_key_id=uuid.UUID(data.api_key_id) if data.api_key_id else None,
             monthly_limit_usd=data.monthly_limit_usd,
@@ -153,8 +168,12 @@ async def delete_budget(budget_id: str):
 
 
 async def _to_response(budget: Budget) -> BudgetResponse:
-    user_name = user_email = key_label = key_prefix = None
+    user_name = user_email = key_label = key_prefix = org_name = None
     async with async_session_factory() as session:
+        if budget.org_id:
+            org = await session.get(Org, budget.org_id)
+            if org:
+                org_name = org.name
         if budget.user_id:
             user = await session.get(User, budget.user_id)
             if user:
@@ -172,6 +191,7 @@ async def _to_response(budget: Budget) -> BudgetResponse:
         pct = budget.current_month_usage_usd / budget.monthly_limit_usd * 100
     return BudgetResponse(
         id=str(budget.id),
+        org_id=str(budget.org_id) if budget.org_id else None,
         user_id=str(budget.user_id) if budget.user_id else None,
         api_key_id=str(budget.api_key_id) if budget.api_key_id else None,
         monthly_limit_usd=budget.monthly_limit_usd,
@@ -183,6 +203,7 @@ async def _to_response(budget: Budget) -> BudgetResponse:
         period_start=budget.period_start.isoformat(),
         created_at=budget.created_at.isoformat(),
         updated_at=budget.updated_at.isoformat(),
+        org_name=org_name,
         user_name=user_name,
         user_email=user_email,
         key_label=key_label,
