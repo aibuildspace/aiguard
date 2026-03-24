@@ -2,7 +2,7 @@
 
 /**
  * postinstall.js — Creates a self-contained Python virtual environment
- * and installs the aigate PyPI package into it.
+ * and installs the aigate Python package from the bundled source.
  *
  * Requirements: Python 3.11+ must be available on the system.
  */
@@ -94,11 +94,32 @@ function main() {
     cwd: PACKAGE_DIR,
   });
 
-  console.log("   Installing aigate from PyPI …");
-  execSync(`"${pip}" install --upgrade aigate`, {
-    stdio: "inherit",
-    cwd: PACKAGE_DIR,
-  });
+  // Resolve the Python source to install:
+  //   1. Bundled python-src/ (npm pack / npm publish)
+  //   2. Repo root (local development)
+  //   3. PyPI (fallback)
+  const bundledSrc = path.join(PACKAGE_DIR, "python-src");
+  const repoRoot = path.resolve(PACKAGE_DIR, "..", "..");
+
+  if (fs.existsSync(path.join(bundledSrc, "pyproject.toml"))) {
+    console.log("   Installing aigate from bundled source …");
+    execSync(`"${pip}" install --upgrade "${bundledSrc}"`, {
+      stdio: "inherit",
+      cwd: PACKAGE_DIR,
+    });
+  } else if (fs.existsSync(path.join(repoRoot, "pyproject.toml"))) {
+    console.log("   Installing aigate from local repo …");
+    execSync(`"${pip}" install --upgrade "${repoRoot}"`, {
+      stdio: "inherit",
+      cwd: PACKAGE_DIR,
+    });
+  } else {
+    console.log("   Installing aigate from PyPI …");
+    execSync(`"${pip}" install --upgrade aigate`, {
+      stdio: "inherit",
+      cwd: PACKAGE_DIR,
+    });
+  }
 
   // 4. Verify installation
   const aigateBin = venvBin("aigate");
