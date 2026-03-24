@@ -1,0 +1,49 @@
+{
+  "name": "aigate",
+  "version": "0.1.1",
+  "description": "Anti-virus for AI — intercept prompt injections, PII leaks, and policy violations before they reach the model.",
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "ai",
+    "security",
+    "proxy",
+    "llm",
+    "prompt-injection",
+    "pii",
+    "guardrails",
+    "anthropic",
+    "openai",
+    "claude",
+    "cursor",
+    "aigate"
+  ],
+  "homepage": "https://github.com/aibuildspace/aigate.git",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aibuildspace/aigate.git"
+  },
+  "license": "MIT",
+  "author": "Sean Preusse",
+  "bin": {
+    "aigate": "./bin/aigate.js"
+  },
+  "scripts": {
+    "postinstall": "node postinstall.js"
+  },
+  "files": [
+    "bin/",
+    "postinstall.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ]
+}

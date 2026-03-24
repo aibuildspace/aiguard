@@ -1,6 +1,6 @@
 import asyncio
 import pytest
-from aiguard.shields.models import ScanContext
+from aigate.shields.models import ScanContext
 
 
 def make_context(messages: list[dict]) -> ScanContext:

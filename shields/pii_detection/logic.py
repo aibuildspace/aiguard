@@ -24,7 +24,7 @@ _EMAIL_RE = re.compile(
 
 
 async def scan(context: Any) -> Any:
-    from aiguard.shields.models import Finding, ShieldResult
+    from aigate.shields.models import Finding, ShieldResult
 
     findings = []
     log_only = context.params.get("log_emails", False)
@@ -71,7 +71,7 @@ async def scan(context: Any) -> Any:
             pass
 
     triggered = len(findings) > 0
-    from aiguard.shields.models import resolve_effective_action
+    from aigate.shields.models import resolve_effective_action
     return ShieldResult(
         shield_id="pii_detection",
         triggered=triggered,
@@ -83,7 +83,7 @@ async def scan(context: Any) -> Any:
 async def _run_ner(context: Any) -> list:
     """Use spaCy NER for entity detection. Requires: pip install spacy && python -m spacy download en_core_web_sm"""
     import spacy
-    from aiguard.shields.models import Finding
+    from aigate.shields.models import Finding
 
     try:
         nlp = spacy.load("en_core_web_sm")

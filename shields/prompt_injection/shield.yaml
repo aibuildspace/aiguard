@@ -6,7 +6,7 @@ description: 'Detects attempts to inject malicious instructions via user-supplie
   content. Common vector: copy-pasting text from the web that contains hidden instructions.
 
   '
-author: aiguard-team
+author: aigate-team
 tags:
 - security
 - injection

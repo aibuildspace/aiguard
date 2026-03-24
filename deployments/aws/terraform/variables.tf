@@ -1,5 +1,5 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# AIGuard — AWS Terraform Variables
+# AIGate — AWS Terraform Variables
 # ─────────────────────────────────────────────────────────────────────────────
 
 variable "aws_region" {
@@ -22,7 +22,7 @@ variable "instance_type" {
 variable "instance_name" {
   description = "Name tag for the EC2 instance"
   type        = string
-  default     = "aiguard-proxy"
+  default     = "aigate-proxy"
 }
 
 variable "admin_username" {
@@ -40,13 +40,13 @@ variable "ssh_public_key" {
 variable "key_pair_name" {
   description = "Name of the AWS key pair"
   type        = string
-  default     = "aiguard-key"
+  default     = "aigate-key"
 }
 
 variable "repo_url" {
-  description = "AIGuard GitHub repo URL"
+  description = "AIGate GitHub repo URL"
   type        = string
-  default     = "https://github.com/aibuildspace/aiguard.git"
+  default     = "https://github.com/aibuildspace/aigate.git"
 }
 
 variable "repo_branch" {
@@ -74,7 +74,7 @@ variable "allowed_ssh_cidrs" {
 }
 
 variable "allowed_proxy_cidrs" {
-  description = "CIDR blocks allowed to reach the AIGuard proxy (port 8080)"
+  description = "CIDR blocks allowed to reach the AIGate proxy (port 8080)"
   type        = list(string)
   default     = ["0.0.0.0/0"]
 }

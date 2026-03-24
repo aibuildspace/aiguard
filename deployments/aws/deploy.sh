@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
-# AIGuard — Deploy to AWS EC2
+# AIGate — Deploy to AWS EC2
 #
-# Creates an EC2 instance, installs AIGuard, and starts the proxy.
+# Creates an EC2 instance, installs AIGate, and starts the proxy.
 # Requires: AWS CLI v2 configured with appropriate credentials.
 #
 # Usage:
@@ -16,9 +16,9 @@ set -euo pipefail
 # ── Defaults ─────────────────────────────────────────────────────────────────
 INSTANCE_TYPE="${INSTANCE_TYPE:-t3.micro}"
 REGION="${AWS_REGION:-us-east-1}"
-KEY_NAME="${KEY_NAME:-aiguard-key}"
-SECURITY_GROUP_NAME="aiguard-sg"
-INSTANCE_NAME="aiguard-proxy"
+KEY_NAME="${KEY_NAME:-aigate-key}"
+SECURITY_GROUP_NAME="aigate-sg"
+INSTANCE_NAME="aigate-proxy"
 AMI_ID=""  # Auto-detect latest Amazon Linux 2023
 
 # ── Parse CLI args ───────────────────────────────────────────────────────────
@@ -36,7 +36,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 echo "╔══════════════════════════════════════════════════════════╗"
-echo "║           AIGuard — AWS EC2 Deployment                  ║"
+echo "║           AIGate — AWS EC2 Deployment                  ║"
 echo "╚══════════════════════════════════════════════════════════╝"
 echo ""
 echo "  Region:        $REGION"
@@ -97,7 +97,7 @@ if [[ "$SG_ID" == "None" || -z "$SG_ID" ]]; then
     echo "→ Creating security group: $SECURITY_GROUP_NAME"
     SG_ID=$(aws ec2 create-security-group \
         --group-name "$SECURITY_GROUP_NAME" \
-        --description "AIGuard proxy - SSH + HTTP 8080" \
+        --description "AIGate proxy - SSH + HTTP 8080" \
         --vpc-id "$VPC_ID" \
         --region "$REGION" \
         --query 'GroupId' --output text)
@@ -107,7 +107,7 @@ if [[ "$SG_ID" == "None" || -z "$SG_ID" ]]; then
         --group-id "$SG_ID" --region "$REGION" \
         --protocol tcp --port 22 --cidr 0.0.0.0/0
 
-    # AIGuard proxy port
+    # AIGate proxy port
     aws ec2 authorize-security-group-ingress \
         --group-id "$SG_ID" --region "$REGION" \
         --protocol tcp --port 8080 --cidr 0.0.0.0/0
@@ -126,13 +126,13 @@ set -euo pipefail
 dnf update -y
 dnf install -y python3.11 python3.11-pip git
 
-# Create aiguard user
-useradd -r -m -s /bin/bash aiguard
+# Create aigate user
+useradd -r -m -s /bin/bash aigate
 
-# Install AIGuard
-su - aiguard -c "
-    python3.11 -m pip install --user aiguard
-    mkdir -p ~/aiguard && cd ~/aiguard
+# Install AIGate
+su - aigate -c "
+    python3.11 -m pip install --user aigate
+    mkdir -p ~/aigate && cd ~/aigate
 
     # Generate default config
     cat > .env <<'EOF'
@@ -142,34 +142,34 @@ GUARD_LOG_LEVEL=info
 GUARD_PASSTHROUGH_MODE=true
 GUARD_ADMIN_API_ENABLED=true
 GUARD_ADMIN_API_KEY=$(python3.11 -c 'import secrets; print(secrets.token_urlsafe(32))')
-GUARD_DATABASE_URL=sqlite+aiosqlite:///./aiguard.db
+GUARD_DATABASE_URL=sqlite+aiosqlite:///./aigate.db
 EOF
 "
 
 # Create systemd service
-cat > /etc/systemd/system/aiguard.service <<'EOF'
+cat > /etc/systemd/system/aigate.service <<'EOF'
 [Unit]
-Description=AIGuard LLM Security Proxy
+Description=AIGate LLM Security Proxy
 After=network.target
 
 [Service]
 Type=simple
-User=aiguard
-WorkingDirectory=/home/aiguard/aiguard
-ExecStart=/home/aiguard/.local/bin/guard start --host 0.0.0.0 --port 8080
+User=aigate
+WorkingDirectory=/home/aigate/aigate
+ExecStart=/home/aigate/.local/bin/aigate start --host 0.0.0.0 --port 8080
 Restart=always
 RestartSec=5
-Environment=PATH=/home/aiguard/.local/bin:/usr/bin:/bin
+Environment=PATH=/home/aigate/.local/bin:/usr/bin:/bin
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
-systemctl enable aiguard
-systemctl start aiguard
+systemctl enable aigate
+systemctl start aigate
 
-echo "AIGuard deployment complete" > /home/aiguard/deploy.log
+echo "AIGate deployment complete" > /home/aigate/deploy.log
 USERDATA
 )
 
@@ -198,7 +198,7 @@ PUBLIC_IP=$(aws ec2 describe-instances \
 
 echo ""
 echo "╔══════════════════════════════════════════════════════════╗"
-echo "║  ✅  AIGuard deployed successfully!                     ║"
+echo "║  ✅  AIGate deployed successfully!                     ║"
 echo "╚══════════════════════════════════════════════════════════╝"
 echo ""
 echo "  Instance:  $INSTANCE_ID"
@@ -206,7 +206,7 @@ echo "  Public IP: $PUBLIC_IP"
 echo "  Proxy URL: http://$PUBLIC_IP:8080"
 echo ""
 echo "  SSH:       ssh -i ${KEY_NAME}.pem ec2-user@$PUBLIC_IP"
-echo "  Logs:      ssh -i ${KEY_NAME}.pem ec2-user@$PUBLIC_IP journalctl -u aiguard -f"
+echo "  Logs:      ssh -i ${KEY_NAME}.pem ec2-user@$PUBLIC_IP journalctl -u aigate -f"
 echo ""
 echo "  Configure your AI tool:"
 echo "    export ANTHROPIC_BASE_URL=http://$PUBLIC_IP:8080/anthropic"

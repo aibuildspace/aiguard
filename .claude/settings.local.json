@@ -6,14 +6,14 @@
       "Bash(python3 -m pytest tests/ -v)",
       "Bash(make demo:*)",
       "Bash(python3 -m pytest tests/ -v --tb=short)",
-      "Bash(find aiguard:*)",
+      "Bash(find aigate:*)",
       "Bash(shield --help)",
-      "Bash(python -c \"from aiguard.main import app; print\\(''App created OK''\\)\")",
-      "Bash(python3 -c \"from aiguard.main import app; print\\(''App created OK''\\)\")",
+      "Bash(python -c \"from aigate.main import app; print\\(''App created OK''\\)\")",
+      "Bash(python3 -c \"from aigate.main import app; print\\(''App created OK''\\)\")",
       "Bash(python3 -c \":*)",
-      "Bash(python3 -c \"from aiguard.main import app; print\\(''App OK''\\)\")",
-      "Bash(node -c /Users/seanpreusse/Documents/Dev/aiguard/aiguard/portal/app.js)",
-      "Bash(python3 -c \"from aiguard.main import app; print\\(''OK''\\)\")"
+      "Bash(python3 -c \"from aigate.main import app; print\\(''App OK''\\)\")",
+      "Bash(node -c /Users/seanpreusse/Documents/Dev/aigate/aigate/portal/app.js)",
+      "Bash(python3 -c \"from aigate.main import app; print\\(''OK''\\)\")"
     ]
   }
 }

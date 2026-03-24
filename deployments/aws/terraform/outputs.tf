@@ -1,9 +1,9 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# AIGuard — Terraform Outputs
+# AIGate — Terraform Outputs
 # ─────────────────────────────────────────────────────────────────────────────
 
 output "public_ip" {
-  description = "Public IP address of the AIGuard instance"
+  description = "Public IP address of the AIGate instance"
   value       = aws_eip.this.public_ip
 }
 
@@ -18,12 +18,12 @@ output "ssh_command" {
 }
 
 output "proxy_url" {
-  description = "AIGuard proxy base URL"
+  description = "AIGate proxy base URL"
   value       = "http://${aws_eip.this.public_ip}:8080"
 }
 
 output "portal_url" {
-  description = "AIGuard management portal URL"
+  description = "AIGate management portal URL"
   value       = "http://${aws_eip.this.public_ip}:8080/portal"
 }
 

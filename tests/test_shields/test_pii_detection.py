@@ -1,5 +1,5 @@
 import pytest
-from aiguard.shields.models import ScanContext
+from aigate.shields.models import ScanContext
 import uuid
 
 

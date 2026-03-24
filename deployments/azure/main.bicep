@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// AIGuard — Azure Bicep Template
+// AIGate — Azure Bicep Template
 //
-// Deploys a VM with cloud-init that installs AIGuard from the public repo
+// Deploys a VM with cloud-init that installs AIGate from the public repo
 // and starts the proxy as a systemd service.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -9,7 +9,7 @@
 param location string = resourceGroup().location
 
 @description('Name of the virtual machine')
-param vmName string = 'aiguard-vm'
+param vmName string = 'aigate-vm'
 
 @description('VM size (Standard_B1s = free tier eligible)')
 @allowed([
@@ -28,14 +28,14 @@ param adminUsername string = 'azureuser'
 @secure()
 param sshPublicKey string
 
-@description('AIGuard GitHub repo URL')
-param repoUrl string = 'https://github.com/aibuildspace/aiguard.git'
+@description('AIGate GitHub repo URL')
+param repoUrl string = 'https://github.com/aibuildspace/aigate.git'
 
 @description('Git branch or tag to deploy')
 param repoBranch string = 'main'
 
 // ── Variables ───────────────────────────────────────────────────────────────
-var prefix = 'aiguard'
+var prefix = 'aigate'
 var vnetName = '${prefix}-vnet'
 var subnetName = '${prefix}-subnet'
 var nsgName = '${prefix}-nsg'
@@ -54,55 +54,55 @@ packages:
 
 runcmd:
   # Create service user
-  - useradd -r -m -s /bin/bash aiguard
+  - useradd -r -m -s /bin/bash aigate
 
   # Clone repo and install
-  - su - aiguard -c "git clone --depth 1 --branch {0} {1} ~/repo"
-  - su - aiguard -c "cd ~/repo && python3 -m pip install --user --break-system-packages ."
-  - su - aiguard -c "mkdir -p ~/aiguard"
+  - su - aigate -c "git clone --depth 1 --branch {0} {1} ~/repo"
+  - su - aigate -c "cd ~/repo && python3 -m pip install --user --break-system-packages ."
+  - su - aigate -c "mkdir -p ~/aigate"
 
   # Generate config with admin key
   - |
     ADMIN_KEY=$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')
-    cat > /home/aiguard/aiguard/.env <<EOF
+    cat > /home/aigate/aigate/.env <<EOF
     GUARD_HOST=0.0.0.0
     GUARD_PORT=8080
     GUARD_LOG_LEVEL=info
     GUARD_PASSTHROUGH_MODE=true
     GUARD_ADMIN_API_ENABLED=true
     GUARD_ADMIN_API_KEY=$ADMIN_KEY
-    GUARD_DATABASE_URL=sqlite+aiosqlite:///./aiguard.db
+    GUARD_DATABASE_URL=sqlite+aiosqlite:///./aigate.db
     EOF
-    chown aiguard:aiguard /home/aiguard/aiguard/.env
-    sed -i 's/^[[:space:]]*//' /home/aiguard/aiguard/.env
+    chown aigate:aigate /home/aigate/aigate/.env
+    sed -i 's/^[[:space:]]*//' /home/aigate/aigate/.env
 
   # Copy shields into working directory
-  - su - aiguard -c "cp -r ~/repo/shields ~/aiguard/shields"
+  - su - aigate -c "cp -r ~/repo/shields ~/aigate/shields"
 
   # Create systemd service
   - |
-    cat > /etc/systemd/system/aiguard.service <<EOF
+    cat > /etc/systemd/system/aigate.service <<EOF
     [Unit]
-    Description=AIGuard LLM Security Proxy
+    Description=AIGate LLM Security Proxy
     After=network.target
 
     [Service]
     Type=simple
-    User=aiguard
-    WorkingDirectory=/home/aiguard/aiguard
-    ExecStart=/home/aiguard/.local/bin/guard start --host 0.0.0.0 --port 8080
+    User=aigate
+    WorkingDirectory=/home/aigate/aigate
+    ExecStart=/home/aigate/.local/bin/aigate start --host 0.0.0.0 --port 8080
     Restart=always
     RestartSec=5
-    Environment=PATH=/home/aiguard/.local/bin:/usr/bin:/bin
+    Environment=PATH=/home/aigate/.local/bin:/usr/bin:/bin
 
     [Install]
     WantedBy=multi-user.target
     EOF
-    sed -i 's/^[[:space:]]*//' /etc/systemd/system/aiguard.service
+    sed -i 's/^[[:space:]]*//' /etc/systemd/system/aigate.service
 
   - systemctl daemon-reload
-  - systemctl enable aiguard
-  - systemctl start aiguard
+  - systemctl enable aigate
+  - systemctl start aigate
 ''', repoBranch, repoUrl)
 
 // ── Network Security Group ──────────────────────────────────────────────────
@@ -125,7 +125,7 @@ resource nsg 'Microsoft.Network/networkSecurityGroups@2023-11-01' = {
         }
       }
       {
-        name: 'AllowAIGuard'
+        name: 'AllowAIGate'
         properties: {
           priority: 1010
           direction: 'Inbound'

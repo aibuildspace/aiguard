@@ -1,5 +1,5 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# AIGuard — Terraform Provider Requirements
+# AIGate — Terraform Provider Requirements
 # ─────────────────────────────────────────────────────────────────────────────
 
 terraform {

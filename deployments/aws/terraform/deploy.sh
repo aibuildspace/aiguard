@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
-# AIGuard — Deploy to AWS via Terraform
+# AIGate — Deploy to AWS via Terraform
 #
-# Deploys AIGuard using Terraform (VPC + EC2 + cloud-init), then onboards
+# Deploys AIGate using Terraform (VPC + EC2 + cloud-init), then onboards
 # the first user.
-# Installs from: https://github.com/aibuildspace/aiguard
+# Installs from: https://github.com/aibuildspace/aigate
 #
 # Requires: Terraform >= 1.5, AWS CLI v2 authenticated.
 #
@@ -21,7 +21,7 @@ TF_DIR="$SCRIPT_DIR/terraform"
 # ── Defaults ─────────────────────────────────────────────────────────────────
 REGION="us-east-1"
 INSTANCE_TYPE="t3.micro"
-INSTANCE_NAME="aiguard-proxy"
+INSTANCE_NAME="aigate-proxy"
 ADMIN_USER="ec2-user"
 AUTO_YES=false
 BRANCH="main"
@@ -45,7 +45,7 @@ while [[ $# -gt 0 ]]; do
             echo "Options:"
             echo "  --region REGION          AWS region (default: us-east-1)"
             echo "  --instance-type TYPE     EC2 instance type (default: t3.micro)"
-            echo "  --instance-name NAME     Instance name tag (default: aiguard-proxy)"
+            echo "  --instance-name NAME     Instance name tag (default: aigate-proxy)"
             echo "  --branch BRANCH          Git branch/tag to deploy (default: main)"
             echo "  --yes, -y                Skip prompts, use defaults"
             echo "  --destroy                Tear down all resources"
@@ -106,7 +106,7 @@ pick() {
 
 # ── Banner ───────────────────────────────────────────────────────────────────
 echo "╔══════════════════════════════════════════════════════════╗"
-echo "║        AIGuard — AWS Deployment (Terraform)             ║"
+echo "║        AIGate — AWS Deployment (Terraform)             ║"
 echo "╚══════════════════════════════════════════════════════════╝"
 
 # ── Verify prerequisites ────────────────────────────────────────────────────
@@ -132,7 +132,7 @@ echo "  ✓ AWS Account: $ACCOUNT"
 # ── Destroy mode ─────────────────────────────────────────────────────────────
 if [[ "$DESTROY" == true ]]; then
     echo ""
-    echo "→ Destroying all AIGuard resources..."
+    echo "→ Destroying all AIGate resources..."
     cd "$TF_DIR"
     terraform destroy -auto-approve \
         -var "aws_region=$REGION"
@@ -251,8 +251,8 @@ if (( ELAPSED >= MAX_WAIT )); then
 fi
 echo "  ✓ Cloud-init complete"
 
-# ── Wait for AIGuard health ─────────────────────────────────────────────────
-echo "→ Waiting for AIGuard service..."
+# ── Wait for AIGate health ─────────────────────────────────────────────────
+echo "→ Waiting for AIGate service..."
 SVC_WAIT=90
 SVC_ELAPSED=0
 while (( SVC_ELAPSED < SVC_WAIT )); do
@@ -265,14 +265,14 @@ done
 
 if ! curl -sf "http://$PUBLIC_IP:8080/health" >/dev/null 2>&1; then
     echo "  ⚠ Service not responding yet"
-    echo "  Check: $SSH_CMD sudo journalctl -u aiguard -f"
+    echo "  Check: $SSH_CMD sudo journalctl -u aigate -f"
 else
-    echo "  ✓ AIGuard is running"
+    echo "  ✓ AIGate is running"
 fi
 
 # ── Read admin key ───────────────────────────────────────────────────────────
 ADMIN_KEY=$(ssh $SSH_OPTS "$ADMIN_USER@$PUBLIC_IP" \
-    "sudo grep GUARD_ADMIN_API_KEY /home/aiguard/aiguard/.env | cut -d= -f2" 2>/dev/null || true)
+    "sudo grep GUARD_ADMIN_API_KEY /home/aigate/aigate/.env | cut -d= -f2" 2>/dev/null || true)
 
 # ── Onboard first user ──────────────────────────────────────────────────────
 echo ""
@@ -398,7 +398,7 @@ fi
 # ── Summary ──────────────────────────────────────────────────────────────────
 echo ""
 echo "╔══════════════════════════════════════════════════════════╗"
-echo "║  ✅  AIGuard deployed successfully!                     ║"
+echo "║  ✅  AIGate deployed successfully!                     ║"
 echo "╚══════════════════════════════════════════════════════════╝"
 echo ""
 echo "  Instance:  $INSTANCE_NAME ($INSTANCE_TYPE)"
@@ -408,7 +408,7 @@ echo "  Proxy URL: http://$PUBLIC_IP:8080"
 echo "  Portal:    http://$PUBLIC_IP:8080/portal"
 echo ""
 echo "  SSH:       $SSH_CMD"
-echo "  Logs:      $SSH_CMD sudo journalctl -u aiguard -f"
+echo "  Logs:      $SSH_CMD sudo journalctl -u aigate -f"
 
 # Show API key(s)
 if [[ -n "${OPENAI_FULL_KEY:-}" || -n "${ANTHROPIC_FULL_KEY:-}" ]]; then
@@ -430,12 +430,12 @@ else
     echo ""
     echo "  To create a user + API key:"
     echo "    $SSH_CMD"
-    echo "    sudo -u aiguard guard onboard"
+    echo "    sudo -u aigate aigate onboard"
 fi
 
 echo ""
 echo "  Configure your AI tools:"
-echo "    guard setup"
+echo "    aigate setup"
 echo ""
 echo "  Teardown:  cd deployments/aws && ./deploy.sh --destroy"
 echo ""

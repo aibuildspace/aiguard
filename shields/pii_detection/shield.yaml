@@ -5,7 +5,7 @@ type: logic
 description: Detects personally identifiable information (PII) in prompts. Prevents
   accidental leakage of sensitive data to external AI APIs. Default action is warn;
   configure sanitize or block per org policy.
-author: aiguard-team
+author: aigate-team
 tags:
 - compliance
 - privacy

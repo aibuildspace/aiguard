@@ -1,7 +1,7 @@
-# Deploy AIGuard on Azure (Bicep)
+# Deploy AIGate on Azure (Bicep)
 
-Deploy AIGuard as a standalone proxy on an Azure VM using a Bicep template.
-Installs from the public repo: [github.com/aibuildspace/aiguard](https://github.com/aibuildspace/aiguard)
+Deploy AIGate as a standalone proxy on an Azure VM using a Bicep template.
+Installs from the public repo: [github.com/aibuildspace/aigate](https://github.com/aibuildspace/aigate)
 
 ## Prerequisites
 
@@ -21,7 +21,7 @@ The interactive script will:
 
 1. Let you pick a **region** and **VM size** (arrow keys)
 2. Deploy the Bicep template (VM + networking + NSG)
-3. Wait for cloud-init to install AIGuard from GitHub
+3. Wait for cloud-init to install AIGate from GitHub
 4. Verify the service is healthy
 5. **Onboard your first user** (org -> user -> API key)
 6. Print ready-to-use `export` commands for your AI tool
@@ -39,8 +39,8 @@ The interactive script will:
 |---|---|---|
 | `--location` | `eastus` | Azure region |
 | `--vm-size` | `Standard_B1s` | VM size (B1s = free tier eligible) |
-| `--vm-name` | `aiguard-vm` | Virtual machine name |
-| `--resource-group` | `aiguard-rg` | Resource group name |
+| `--vm-name` | `aigate-vm` | Virtual machine name |
+| `--resource-group` | `aigate-rg` | Resource group name |
 | `--branch` | `main` | Git branch/tag to deploy from |
 | `--yes`, `-y` | | Skip all prompts, use defaults |
 
@@ -57,10 +57,10 @@ The interactive script will:
 You can deploy the Bicep template without the wrapper script:
 
 ```bash
-az group create --name aiguard-rg --location eastus
+az group create --name aigate-rg --location eastus
 
 az deployment group create \
-  --resource-group aiguard-rg \
+  --resource-group aigate-rg \
   --template-file main.bicep \
   --parameters vmSize=Standard_B1s sshPublicKey="$(cat ~/.ssh/id_rsa.pub)"
 ```
@@ -76,21 +76,21 @@ ssh azureuser@<PUBLIC_IP>
 ### Check status
 
 ```bash
-sudo systemctl status aiguard
-sudo journalctl -u aiguard -f
+sudo systemctl status aigate
+sudo journalctl -u aigate -f
 ```
 
 ### Admin API key
 
 ```bash
-ssh azureuser@<PUBLIC_IP> "sudo grep ADMIN /home/aiguard/aiguard/.env"
+ssh azureuser@<PUBLIC_IP> "sudo grep ADMIN /home/aigate/aigate/.env"
 ```
 
 ### Manual onboarding (if skipped during deploy)
 
 ```bash
 ssh azureuser@<PUBLIC_IP>
-sudo -u aiguard guard onboard
+sudo -u aigate aigate onboard
 ```
 
 ## Production Hardening
@@ -104,5 +104,5 @@ sudo -u aiguard guard onboard
 ## Teardown
 
 ```bash
-az group delete --name aiguard-rg --yes --no-wait
+az group delete --name aigate-rg --yes --no-wait
 ```

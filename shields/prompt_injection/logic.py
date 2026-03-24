@@ -14,7 +14,7 @@ async def scan(context: Any) -> Any:
     context: ScanContext — messages, system_prompt, tool_results, params, pattern_findings
     Returns: SkillResult
     """
-    from aiguard.shields.models import Finding, ShieldResult
+    from aigate.shields.models import Finding, ShieldResult
 
     findings = []
 

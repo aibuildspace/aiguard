@@ -8,7 +8,7 @@ from typing import Any
 
 
 async def scan(context: Any) -> Any:
-    from aiguard.shields.models import Finding, ShieldResult
+    from aigate.shields.models import Finding, ShieldResult
 
     blocked_keywords: list[str] = context.params.get("blocked_keywords", [])
     case_sensitive: bool = context.params.get("case_sensitive", False)

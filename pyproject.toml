@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "aiguard"
+name = "aigate"
 version = "0.1.0"
 description = "Anti-virus for AI — a security middleware proxy for LLM APIs"
 readme = "README.md"
@@ -48,11 +48,10 @@ dev = [
 ]
 
 [project.scripts]
-aiguard = "aiguard.cli.main:app"
-guard = "aiguard.cli.main:app"
+aigate = "aigate.cli.main:app"
 
 [tool.hatch.build.targets.wheel]
-packages = ["aiguard"]
+packages = ["aigate"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

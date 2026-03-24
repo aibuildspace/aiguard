@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
-# AIGuard — Deploy to Azure via Bicep
+# AIGate — Deploy to Azure via Bicep
 #
-# Deploys AIGuard using an ARM/Bicep template, then onboards the first user.
-# Installs from: https://github.com/aibuildspace/aiguard
+# Deploys AIGate using an ARM/Bicep template, then onboards the first user.
+# Installs from: https://github.com/aibuildspace/aigate
 #
 # Requires: Azure CLI (az) authenticated, with Bicep support.
 #
@@ -17,9 +17,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ── Defaults ─────────────────────────────────────────────────────────────────
-RESOURCE_GROUP="aiguard-rg"
+RESOURCE_GROUP="aigate-rg"
 LOCATION="eastus"
-VM_NAME="aiguard-vm"
+VM_NAME="aigate-vm"
 VM_SIZE="Standard_B1s"
 ADMIN_USER="azureuser"
 AUTO_YES=false
@@ -43,8 +43,8 @@ while [[ $# -gt 0 ]]; do
             echo "Options:"
             echo "  --location LOC         Azure region (default: eastus)"
             echo "  --vm-size SIZE         VM size (default: Standard_B1s)"
-            echo "  --vm-name NAME         VM name (default: aiguard-vm)"
-            echo "  --resource-group RG    Resource group (default: aiguard-rg)"
+            echo "  --vm-name NAME         VM name (default: aigate-vm)"
+            echo "  --resource-group RG    Resource group (default: aigate-rg)"
             echo "  --branch BRANCH        Git branch/tag to deploy (default: main)"
             echo "  --yes, -y              Skip prompts, use defaults"
             exit 0 ;;
@@ -104,7 +104,7 @@ pick() {
 
 # ── Banner ───────────────────────────────────────────────────────────────────
 echo "╔══════════════════════════════════════════════════════════╗"
-echo "║        AIGuard — Azure Deployment (Bicep)               ║"
+echo "║        AIGate — Azure Deployment (Bicep)               ║"
 echo "╚══════════════════════════════════════════════════════════╝"
 
 # ── Verify Azure CLI ────────────────────────────────────────────────────────
@@ -261,8 +261,8 @@ if (( ELAPSED >= MAX_WAIT )); then
 fi
 echo "  ✓ Cloud-init complete"
 
-# ── Wait for AIGuard health ─────────────────────────────────────────────────
-echo "→ Waiting for AIGuard service..."
+# ── Wait for AIGate health ─────────────────────────────────────────────────
+echo "→ Waiting for AIGate service..."
 SVC_WAIT=90
 SVC_ELAPSED=0
 while (( SVC_ELAPSED < SVC_WAIT )); do
@@ -275,15 +275,15 @@ done
 
 if ! curl -sf "http://$PUBLIC_IP:8080/health" >/dev/null 2>&1; then
     echo "  ⚠ Service not responding yet"
-    echo "  Check: ssh $ADMIN_USER@$PUBLIC_IP sudo journalctl -u aiguard -f"
+    echo "  Check: ssh $ADMIN_USER@$PUBLIC_IP sudo journalctl -u aigate -f"
 else
-    echo "  ✓ AIGuard is running"
+    echo "  ✓ AIGate is running"
 fi
 
 # ── Read admin key ───────────────────────────────────────────────────────────
 ADMIN_KEY=$(ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
     "$ADMIN_USER@$PUBLIC_IP" \
-    "sudo grep GUARD_ADMIN_API_KEY /home/aiguard/aiguard/.env | cut -d= -f2" 2>/dev/null || true)
+    "sudo grep GUARD_ADMIN_API_KEY /home/aigate/aigate/.env | cut -d= -f2" 2>/dev/null || true)
 
 # ── Onboard first user ──────────────────────────────────────────────────────
 echo ""
@@ -411,7 +411,7 @@ fi
 # ── Summary ──────────────────────────────────────────────────────────────────
 echo ""
 echo "╔══════════════════════════════════════════════════════════╗"
-echo "║  ✅  AIGuard deployed successfully!                     ║"
+echo "║  ✅  AIGate deployed successfully!                     ║"
 echo "╚══════════════════════════════════════════════════════════╝"
 echo ""
 echo "  VM:        $VM_NAME ($VM_SIZE)"
@@ -421,7 +421,7 @@ echo "  Proxy URL: http://$PUBLIC_IP:8080"
 echo "  Portal:    http://$PUBLIC_IP:8080/portal"
 echo ""
 echo "  SSH:       ssh $ADMIN_USER@$PUBLIC_IP"
-echo "  Logs:      ssh $ADMIN_USER@$PUBLIC_IP sudo journalctl -u aiguard -f"
+echo "  Logs:      ssh $ADMIN_USER@$PUBLIC_IP sudo journalctl -u aigate -f"
 
 # Show API key(s)
 if [[ -n "${OPENAI_FULL_KEY:-}" || -n "${ANTHROPIC_FULL_KEY:-}" ]]; then
@@ -443,12 +443,12 @@ else
     echo ""
     echo "  To create a user + API key:"
     echo "    ssh $ADMIN_USER@$PUBLIC_IP"
-    echo "    sudo -u aiguard guard onboard"
+    echo "    sudo -u aigate aigate onboard"
 fi
 
 echo ""
 echo "  Configure your AI tools:"
-echo "    guard setup"
+echo "    aigate setup"
 echo ""
 echo "  Teardown:  az group delete --name $RESOURCE_GROUP --yes --no-wait"
 echo ""

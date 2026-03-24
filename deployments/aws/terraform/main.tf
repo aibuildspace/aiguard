@@ -1,7 +1,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# AIGuard — AWS Terraform Main Configuration
+# AIGate — AWS Terraform Main Configuration
 #
-# Deploys an EC2 instance with cloud-init that installs AIGuard from the
+# Deploys an EC2 instance with cloud-init that installs AIGate from the
 # public repo and starts the proxy as a systemd service.
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -10,7 +10,7 @@ provider "aws" {
 
   default_tags {
     tags = merge({
-      Project   = "aiguard"
+      Project   = "aigate"
       ManagedBy = "terraform"
     }, var.tags)
   }
@@ -72,13 +72,13 @@ resource "aws_vpc" "this" {
   enable_dns_support   = true
   enable_dns_hostnames = true
 
-  tags = { Name = "aiguard-vpc" }
+  tags = { Name = "aigate-vpc" }
 }
 
 resource "aws_internet_gateway" "this" {
   vpc_id = aws_vpc.this.id
 
-  tags = { Name = "aiguard-igw" }
+  tags = { Name = "aigate-igw" }
 }
 
 resource "aws_subnet" "public" {
@@ -87,7 +87,7 @@ resource "aws_subnet" "public" {
   availability_zone       = data.aws_availability_zones.available.names[0]
   map_public_ip_on_launch = true
 
-  tags = { Name = "aiguard-public" }
+  tags = { Name = "aigate-public" }
 }
 
 resource "aws_route_table" "public" {
@@ -98,7 +98,7 @@ resource "aws_route_table" "public" {
     gateway_id = aws_internet_gateway.this.id
   }
 
-  tags = { Name = "aiguard-public-rt" }
+  tags = { Name = "aigate-public-rt" }
 }
 
 resource "aws_route_table_association" "public" {
@@ -109,11 +109,11 @@ resource "aws_route_table_association" "public" {
 # ── Security Group ───────────────────────────────────────────────────────────
 
 resource "aws_security_group" "this" {
-  name        = "aiguard-sg"
-  description = "AIGuard proxy — SSH + HTTP 8080"
+  name        = "aigate-sg"
+  description = "AIGate proxy — SSH + HTTP 8080"
   vpc_id      = aws_vpc.this.id
 
-  tags = { Name = "aiguard-sg" }
+  tags = { Name = "aigate-sg" }
 }
 
 resource "aws_vpc_security_group_ingress_rule" "ssh" {
@@ -131,7 +131,7 @@ resource "aws_vpc_security_group_ingress_rule" "proxy" {
   for_each = toset(var.allowed_proxy_cidrs)
 
   security_group_id = aws_security_group.this.id
-  description       = "AIGuard proxy"
+  description       = "AIGate proxy"
   ip_protocol       = "tcp"
   from_port         = 8080
   to_port           = 8080
@@ -150,7 +150,7 @@ resource "aws_vpc_security_group_egress_rule" "all" {
 resource "aws_eip" "this" {
   domain = "vpc"
 
-  tags = { Name = "aiguard-eip" }
+  tags = { Name = "aigate-eip" }
 }
 
 resource "aws_eip_association" "this" {

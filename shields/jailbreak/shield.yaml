@@ -4,7 +4,7 @@ version: 1.0.0
 type: pattern
 description: 'Detects common jailbreak patterns: persona overrides, roleplay-based
   constraint bypasses, and social engineering attempts.'
-author: aiguard-team
+author: aigate-team
 tags:
 - security
 - jailbreak

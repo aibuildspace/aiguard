@@ -10,5 +10,5 @@ os.environ.setdefault("SHIELD_SHIELDS_DIRS", "./shields:./user_shields")
 
 @pytest.fixture
 def shield_runner():
-    from aiguard.shields.runner import ShieldRunner
+    from aigate.shields.runner import ShieldRunner
     return ShieldRunner(["./shields", "./user_shields"])

@@ -1,6 +1,6 @@
-# Deploy AIGuard on AWS EC2
+# Deploy AIGate on AWS EC2
 
-Deploy AIGuard as a standalone proxy on an Amazon EC2 instance.
+Deploy AIGate as a standalone proxy on an Amazon EC2 instance.
 
 ## Prerequisites
 
@@ -19,9 +19,9 @@ chmod +x deploy.sh
 This will:
 
 1. Find the latest Amazon Linux 2023 AMI
-2. Create a key pair (`aiguard-key.pem`) if one doesn't exist
-3. Create a security group allowing SSH (22) and AIGuard (8080)
-4. Launch a `t3.micro` instance with cloud-init that installs AIGuard
+2. Create a key pair (`aigate-key.pem`) if one doesn't exist
+3. Create a security group allowing SSH (22) and AIGate (8080)
+4. Launch a `t3.micro` instance with cloud-init that installs AIGate
 5. Print the public IP and connection details
 
 ## Options
@@ -30,7 +30,7 @@ This will:
 |---|---|---|
 | `--instance-type` | `t3.micro` | EC2 instance type |
 | `--region` | `us-east-1` | AWS region |
-| `--key-name` | `aiguard-key` | SSH key pair name |
+| `--key-name` | `aigate-key` | SSH key pair name |
 | `--ami` | *(auto-detect)* | Override AMI ID |
 
 ```bash
@@ -43,14 +43,14 @@ This will:
 ### Connect
 
 ```bash
-ssh -i aiguard-key.pem ec2-user@<PUBLIC_IP>
+ssh -i aigate-key.pem ec2-user@<PUBLIC_IP>
 ```
 
 ### Check status
 
 ```bash
-sudo systemctl status aiguard
-sudo journalctl -u aiguard -f
+sudo systemctl status aigate
+sudo journalctl -u aigate -f
 ```
 
 ### Configure your AI tools
@@ -65,7 +65,7 @@ export OPENAI_BASE_URL=http://<PUBLIC_IP>:8080/openai
 The deploy script auto-generates an admin key. Retrieve it from the instance:
 
 ```bash
-ssh -i aiguard-key.pem ec2-user@<PUBLIC_IP> "cat /home/aiguard/aiguard/.env | grep ADMIN"
+ssh -i aigate-key.pem ec2-user@<PUBLIC_IP> "cat /home/aigate/aigate/.env | grep ADMIN"
 ```
 
 ## Production Hardening
@@ -83,13 +83,13 @@ For production use, consider:
 ```bash
 # Find and terminate the instance
 INSTANCE_ID=$(aws ec2 describe-instances \
-    --filters "Name=tag:Name,Values=aiguard-proxy" "Name=instance-state-name,Values=running" \
+    --filters "Name=tag:Name,Values=aigate-proxy" "Name=instance-state-name,Values=running" \
     --query 'Reservations[0].Instances[0].InstanceId' --output text)
 
 aws ec2 terminate-instances --instance-ids "$INSTANCE_ID"
 
 # Optionally clean up security group and key pair
-aws ec2 delete-security-group --group-name aiguard-sg
-aws ec2 delete-key-pair --key-name aiguard-key
-rm -f aiguard-key.pem
+aws ec2 delete-security-group --group-name aigate-sg
+aws ec2 delete-key-pair --key-name aigate-key
+rm -f aigate-key.pem
 ```
