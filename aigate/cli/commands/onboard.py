@@ -236,6 +236,7 @@ def _pick_user(org, users):
 def _pick_key(user, org, keys):
     """Returns (full_key_or_none, key_prefix, provider, is_new) or _BACK."""
     if keys:
+        # Show existing keys and offer to use one or create new
         choices = [
             questionary.Choice(
                 title=f"{k.key_prefix}…  ({k.label}, provider: {k.provider},"
@@ -248,7 +249,7 @@ def _pick_key(user, org, keys):
         choices.append(questionary.Choice(title=GO_BACK, value="__back__"))
 
         selected = questionary.select(
-            f"Select an API key for '{user.email}':",
+            f"Existing keys for '{user.email}' — use one or create new:",
             choices=choices,
             style=_style,
         ).ask()
@@ -259,38 +260,33 @@ def _pick_key(user, org, keys):
             return _BACK
         if selected != "__create__":
             return None, selected.key_prefix, selected.provider, False
-    else:
-        console.print(f"[muted]No API keys for '{user.email}' — let's create one.[/muted]")
 
-    # Create new key
-    label = questionary.text(
-        "Key label:",
-        default="default",
-        style=_style,
-    ).ask() or "default"
-
+    # ── Create new key: provider → upstream key → auto-generate ──────
     provider = questionary.select(
-        "Provider:",
+        "Which LLM provider will you use?",
         choices=[
             questionary.Choice("Anthropic (Claude)", value="anthropic"),
             questionary.Choice("OpenAI (GPT)", value="openai"),
-            questionary.Choice("Any / both", value="any"),
         ],
-        default="any",
         style=_style,
     ).ask()
     if not provider:
         raise typer.Abort()
 
-    # Ask for the real upstream API key
-    provider_label = {"anthropic": "Anthropic", "openai": "OpenAI"}.get(provider, "provider")
+    provider_label = {"anthropic": "Anthropic", "openai": "OpenAI"}[provider]
+    console.print(f"  [muted]Paste your {provider_label} API key — it will be stored encrypted.[/muted]")
     upstream_key = questionary.password(
-        f"{provider_label} API key (the real upstream key — stored encrypted):",
+        f"{provider_label} API key:",
         style=_style,
     ).ask()
     if upstream_key is not None:
         upstream_key = upstream_key.strip() or None
 
+    if not upstream_key:
+        console.print("[error]Upstream API key is required to proxy requests.[/error]")
+        raise typer.Abort()
+
+    label = f"{provider}-default"
     full_key, key_prefix = asyncio.run(_create_key(org.id, user.id, org.slug, label, provider, upstream_key))
     console.print(f"  [success]✓ Created API key[/success] {key_prefix}…")
     return full_key, key_prefix, provider, True
@@ -382,7 +378,7 @@ def onboard():
     console.print(
         Panel(
             "[bold]Welcome to AIGate onboarding[/bold]\n"
-            "We'll walk you through: [accent]Org → User → API Key[/accent]",
+            "We'll walk you through: [accent]Org → User → Upstream Key[/accent]",
             border_style="accent",
         )
     )
@@ -418,7 +414,7 @@ def onboard():
 
         # ── Step 3: API Key ───────────────────────────────────────
         elif step == 3:
-            console.print(f"\n[bold accent]Step 3 of 3[/bold accent]  [bold]API Key[/bold]  [muted](user: {user.email})[/muted]")
+            console.print(f"\n[bold accent]Step 3 of 3[/bold accent]  [bold]Upstream Key[/bold]  [muted](user: {user.email})[/muted]")
             keys = asyncio.run(_fetch_keys(user.id))
             result = _pick_key(user, org, keys)
             if result is _BACK:

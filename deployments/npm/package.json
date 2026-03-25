@@ -1,6 +1,6 @@
 {
   "name": "aigate",
-  "version": "0.1.2",
+  "version": "0.2.1-alpha.1",
   "description": "Anti-virus for AI — intercept prompt injections, PII leaks, and policy violations before they reach the model.",
   "publishConfig": {
     "access": "public"

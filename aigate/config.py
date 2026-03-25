@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -61,7 +62,21 @@ class Settings(BaseSettings):
 
     @property
     def shields_dir_list(self) -> list[str]:
-        return [d.strip() for d in self.shields_dirs.split(":") if d.strip()]
+        dirs: list[str] = []
+        # Include bundled shields shipped with the package (wheel install)
+        bundled = Path(__file__).parent / "bundled_shields"
+        if bundled.is_dir():
+            dirs.append(str(bundled))
+        # Also check for shields/ at repo root (editable / dev install)
+        repo_shields = Path(__file__).resolve().parent.parent / "shields"
+        if repo_shields.is_dir() and str(repo_shields) not in dirs:
+            dirs.append(str(repo_shields))
+        # User-configured shield directories
+        for d in self.shields_dirs.split(":"):
+            d = d.strip()
+            if d and d not in dirs:
+                dirs.append(d)
+        return dirs
 
 
 settings = Settings()

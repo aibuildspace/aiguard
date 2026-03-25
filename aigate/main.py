@@ -84,7 +84,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="AIGate",
         description="Anti-virus for AI — security middleware proxy for LLM APIs",
-        version="0.1.0",
+        version="0.2.1-alpha.1",
         lifespan=lifespan,
         docs_url="/docs" if (settings.debug and not is_prod) else None,
         redoc_url=None,

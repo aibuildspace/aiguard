@@ -50,6 +50,14 @@ const args = useAigateBin
 // Spawn the Python process, forwarding stdio and exit code
 // ---------------------------------------------------------------------------
 
+// Include bundled shields from python-src/ if user hasn't set their own
+const bundledShieldsDir = path.join(PACKAGE_DIR, "python-src", "shields");
+const shieldsEnv = process.env.GUARD_SHIELDS_DIRS
+  ? process.env.GUARD_SHIELDS_DIRS
+  : fs.existsSync(bundledShieldsDir)
+    ? `${bundledShieldsDir}:./shields:./user_shields`
+    : undefined;
+
 const child = spawn(cmd, args, {
   stdio: "inherit",
   env: {
@@ -58,6 +66,8 @@ const child = spawn(cmd, args, {
     // the right Python (e.g., for shield logic modules).
     PATH: `${path.dirname(aigateBin)}${path.delimiter}${process.env.PATH || ""}`,
     VIRTUAL_ENV: VENV_DIR,
+    // Point to bundled shields so they are always discoverable
+    ...(shieldsEnv ? { GUARD_SHIELDS_DIRS: shieldsEnv } : {}),
   },
 });
 
