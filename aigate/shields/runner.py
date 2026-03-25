@@ -134,8 +134,7 @@ class ShieldRunner:
                     any_blocked = True
                 elif action == "sanitize":
                     any_sanitized = True
-                    if result.sanitized_content is not None:
-                        _apply_sanitization(modified_body, result)
+                    _apply_sanitization(modified_body, result)
                 elif action == "warn":
                     any_warned = True
 
@@ -366,7 +365,7 @@ def _check_text(pattern: PatternDefinition, text: str) -> str:
     return ""
 
 
-def _apply_sanitization(body: dict, result: SkillResult) -> None:
+def _apply_sanitization(body: dict, result: ShieldResult) -> None:
     """Apply sanitize replacements to the request body (in-place)."""
     for finding in result.findings:
         if finding.action != "sanitize" or not finding.replacement:

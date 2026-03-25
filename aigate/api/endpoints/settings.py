@@ -31,11 +31,27 @@ _SHIELD_LLM_KEYS = [
     "shield_llm_provider",
 ]
 
+_PII_MASKING_KEYS = [
+    "pii_mask_emails",
+    "pii_mask_phones",
+    "pii_mask_ssn",
+    "pii_mask_credit_cards",
+    "pii_mask_api_keys",
+    "pii_mask_aws_keys",
+    "pii_mask_private_keys",
+    "pii_mask_iban",
+    "pii_mask_ip_addresses",
+    "pii_mask_passport",
+    "pii_mask_dates_of_birth",
+    "pii_mask_names",
+]
+
 _BOOLEAN_KEYS = {
     "grafana_enabled",
     "grafana_trace_playground",
     "grafana_trace_claude_code",
     "grafana_trace_openclaw",
+    *_PII_MASKING_KEYS,
 }
 
 _SECRET_KEYS = {"shield_llm_key"}
@@ -167,3 +183,83 @@ async def test_grafana_connection(payload: TestGrafanaPayload):
     except Exception as e:
         logger.warning("Grafana test failed: %s", e)
         return {"ok": False, "detail": str(e)[:200]}
+
+
+# ── PII Masking settings ─────────────────────────────────────────────────────
+
+# Default values — match shield.yaml params
+_PII_DEFAULTS: dict[str, bool] = {
+    "pii_mask_emails": True,
+    "pii_mask_phones": True,
+    "pii_mask_ssn": True,
+    "pii_mask_credit_cards": True,
+    "pii_mask_api_keys": True,
+    "pii_mask_aws_keys": True,
+    "pii_mask_private_keys": True,
+    "pii_mask_iban": True,
+    "pii_mask_ip_addresses": True,
+    "pii_mask_passport": False,
+    "pii_mask_dates_of_birth": False,
+    "pii_mask_names": False,
+}
+
+
+class PiiMaskingPayload(BaseModel):
+    pii_mask_emails: bool = True
+    pii_mask_phones: bool = True
+    pii_mask_ssn: bool = True
+    pii_mask_credit_cards: bool = True
+    pii_mask_api_keys: bool = True
+    pii_mask_aws_keys: bool = True
+    pii_mask_private_keys: bool = True
+    pii_mask_iban: bool = True
+    pii_mask_ip_addresses: bool = True
+    pii_mask_passport: bool = False
+    pii_mask_dates_of_birth: bool = False
+    pii_mask_names: bool = False
+
+
+@router.get("/pii-masking")
+async def get_pii_masking():
+    """Return current PII masking toggle settings."""
+    async with async_session_factory() as session:
+        out: dict[str, bool] = dict(_PII_DEFAULTS)
+        for key in _PII_MASKING_KEYS:
+            row = await session.get(Setting, key)
+            if row is not None:
+                out[key] = row.value == "true"
+    return out
+
+
+@router.post("/pii-masking")
+async def save_pii_masking(payload: PiiMaskingPayload):
+    """Save PII masking toggle settings."""
+    data = payload.model_dump()
+    async with async_session_factory() as session:
+        for key in _PII_MASKING_KEYS:
+            val = "true" if data.get(key, False) else "false"
+            existing = await session.get(Setting, key)
+            if existing:
+                existing.value = val
+            else:
+                session.add(Setting(key=key, value=val))
+        await session.commit()
+    logger.info("PII masking settings updated")
+    return {"status": "ok"}
+
+
+async def load_pii_masking_overrides() -> dict[str, bool]:
+    """Load PII masking toggles from DB as shield param overrides.
+
+    Returns a dict like {"mask_emails": True, "mask_phones": False, ...}
+    keyed by the shield param name (without the pii_ prefix).
+    """
+    async with async_session_factory() as session:
+        overrides: dict[str, bool] = {}
+        for key in _PII_MASKING_KEYS:
+            row = await session.get(Setting, key)
+            if row is not None:
+                # Strip "pii_" prefix to match shield param names
+                param_name = key.removeprefix("pii_")
+                overrides[param_name] = row.value == "true"
+        return overrides

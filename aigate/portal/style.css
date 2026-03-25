@@ -3174,6 +3174,62 @@ code { font-family: var(--mono); font-size: 0.85em; background: var(--bg); paddi
     color: var(--danger);
 }
 
+/* ── PII Masking Toggle Grid ─────────────────────────────────────────── */
+
+.pii-toggle-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+}
+
+.pii-toggle-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+    cursor: pointer;
+    transition: background var(--transition);
+}
+
+.pii-toggle-item:hover {
+    background: var(--bg-hover);
+}
+
+.pii-toggle-grid .pii-toggle-item:nth-child(2n) {
+    border-right: none;
+}
+
+.pii-toggle-grid .pii-toggle-item:nth-last-child(-n+2) {
+    border-bottom: none;
+}
+
+.pii-toggle-info {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+}
+
+.pii-toggle-label {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--text);
+}
+
+.pii-toggle-desc {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 /* ── Activation Grid ─────────────────────────────────────────────────── */
 
 .settings-card-logo {

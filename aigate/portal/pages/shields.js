@@ -4,6 +4,7 @@ let _shieldsViewMode = localStorage.getItem("gk_shields_view") || "tiles";
 
 const _shieldIcons = {
     pii_detection: `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>`,
+    pii_masking: `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><line x1="9" y1="12" x2="15" y2="12"/></svg>`,
     prompt_injection: `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
     jailbreak: `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>`,
     content_policy: `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>`,
@@ -228,6 +229,11 @@ async function renderShields() {
                 };
             }
 
+            // Wire up PII masking toggles
+            if (s.id === "pii_masking") {
+                _loadPiiToggles();
+            }
+
             // Wire up test button inside dialog
             const testBtn = $("#shield-test-run");
             if (testBtn) {
@@ -345,6 +351,67 @@ async function renderShields() {
     }
 }
 
+function _piiToggleRow(id, label, desc, checked) {
+    return '<label class="pii-toggle-item" for="' + id + '">'
+        + '<div class="pii-toggle-info">'
+        +   '<span class="pii-toggle-label">' + label + '</span>'
+        +   '<span class="pii-toggle-desc">' + desc + '</span>'
+        + '</div>'
+        + '<label class="shield-toggle"><input type="checkbox" id="' + id + '"' + (checked ? ' checked' : '') + '><span class="shield-toggle-track"></span></label>'
+        + '</label>';
+}
+
+async function _loadPiiToggles() {
+    var grid = $("#pii-toggle-grid");
+    if (!grid) return;
+    var cfg = {
+        pii_mask_emails: true, pii_mask_phones: true, pii_mask_ssn: true,
+        pii_mask_credit_cards: true, pii_mask_api_keys: true, pii_mask_aws_keys: true,
+        pii_mask_private_keys: true, pii_mask_iban: true, pii_mask_ip_addresses: true,
+        pii_mask_passport: false, pii_mask_dates_of_birth: false, pii_mask_names: false,
+    };
+    try { cfg = { ...cfg, ...(await api.get("/settings/pii-masking")) }; } catch (_) {}
+    grid.innerHTML = ''
+        + _piiToggleRow("pii_mask_emails",        "Emails",           "user@example.com \u2192 [MASKED-EMAIL]",        cfg.pii_mask_emails)
+        + _piiToggleRow("pii_mask_phones",        "Phone Numbers",    "+1 (555) 123-4567 \u2192 [MASKED-PHONE]",      cfg.pii_mask_phones)
+        + _piiToggleRow("pii_mask_ssn",           "SSN",              "123-45-6789 \u2192 [MASKED-SSN]",               cfg.pii_mask_ssn)
+        + _piiToggleRow("pii_mask_credit_cards",  "Credit Cards",     "4111-1111-... \u2192 [MASKED-CC]",              cfg.pii_mask_credit_cards)
+        + _piiToggleRow("pii_mask_api_keys",      "API Keys",         "api_key=sk-... \u2192 [MASKED-API-KEY]",        cfg.pii_mask_api_keys)
+        + _piiToggleRow("pii_mask_aws_keys",      "AWS Keys",         "AKIA... \u2192 [MASKED-AWS-KEY]",               cfg.pii_mask_aws_keys)
+        + _piiToggleRow("pii_mask_private_keys",  "Private Keys",     "BEGIN PRIVATE KEY \u2192 [MASKED-PRIVATE-KEY]", cfg.pii_mask_private_keys)
+        + _piiToggleRow("pii_mask_iban",          "IBAN",             "GB29NWBK... \u2192 [MASKED-IBAN]",              cfg.pii_mask_iban)
+        + _piiToggleRow("pii_mask_ip_addresses",  "IP Addresses",     "192.168.1.1 \u2192 [MASKED-IP]",               cfg.pii_mask_ip_addresses)
+        + _piiToggleRow("pii_mask_passport",      "Passport Numbers", "AB1234567 \u2192 [MASKED-PASSPORT]",            cfg.pii_mask_passport)
+        + _piiToggleRow("pii_mask_dates_of_birth","Dates of Birth",   "1990-01-15 \u2192 [MASKED-DOB]",               cfg.pii_mask_dates_of_birth)
+        + _piiToggleRow("pii_mask_names",         "Names (NER)",      "Requires spaCy \u00b7 John Smith \u2192 [MASKED-NAME]", cfg.pii_mask_names);
+
+    var saveBtn = $("#pii-save-btn");
+    if (saveBtn) {
+        saveBtn.onclick = async function() {
+            var statusEl = $("#pii-save-status");
+            var payload = {};
+            var keys = [
+                "pii_mask_emails", "pii_mask_phones", "pii_mask_ssn",
+                "pii_mask_credit_cards", "pii_mask_api_keys", "pii_mask_aws_keys",
+                "pii_mask_private_keys", "pii_mask_iban", "pii_mask_ip_addresses",
+                "pii_mask_passport", "pii_mask_dates_of_birth", "pii_mask_names",
+            ];
+            keys.forEach(function(k) {
+                var el = $("#" + k);
+                payload[k] = el ? el.checked : false;
+            });
+            try {
+                await api.post("/settings/pii-masking", payload);
+                showToast("PII masking settings saved", "success");
+                if (statusEl) { statusEl.textContent = "Saved"; statusEl.className = "settings-status connected"; setTimeout(function() { statusEl.textContent = ""; }, 3000); }
+            } catch (e) {
+                showToast("Failed: " + e.message, "error");
+                if (statusEl) { statusEl.textContent = "Error"; statusEl.className = "settings-status error"; }
+            }
+        };
+    }
+}
+
 function _renderShieldDetail(s) {
     const actions = ["block", "warn", "sanitize", "log", "pass"];
     const severities = ["critical", "high", "medium", "low", "info"];
@@ -402,6 +469,26 @@ function _renderShieldDetail(s) {
                 </div>
             </div>
         </details>
+
+        ${s.id === "pii_masking" ? `
+        <!-- PII Masking Categories -->
+        <details class="trace-collapse" open>
+            <summary class="trace-collapse-title">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><line x1="9" y1="12" x2="15" y2="12"/></svg>
+                PII Categories
+            </summary>
+            <div class="trace-collapse-body">
+                <p style="font-size:0.78rem;color:var(--text-muted);margin:0 0 10px">Toggle which PII types are masked before reaching the LLM.</p>
+                <div class="pii-toggle-grid" id="pii-toggle-grid">
+                    <p style="color:var(--text-muted);font-size:0.82rem;padding:12px;grid-column:1/-1;text-align:center">Loading...</p>
+                </div>
+                <div style="display:flex;align-items:center;gap:10px;margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">
+                    <button class="btn btn-primary btn-sm" id="pii-save-btn">Save PII Settings</button>
+                    <span class="settings-status" id="pii-save-status"></span>
+                </div>
+            </div>
+        </details>
+        ` : ""}
 
         <!-- Info (read-only) -->
         <details class="trace-collapse">

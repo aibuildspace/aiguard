@@ -214,6 +214,16 @@ async def _handle_proxy_request(request: Request, path: str) -> Any:
 
     shield_overrides = policy.get("shield_params", policy.get("skill_params", {}))
 
+    # Merge PII masking settings from DB into shield overrides
+    if "pii_masking" in (enabled_shields or shield_runner.shields):
+        try:
+            from aigate.api.endpoints.settings import load_pii_masking_overrides
+            pii_overrides = await load_pii_masking_overrides()
+            if pii_overrides:
+                shield_overrides.setdefault("pii_masking", {}).update(pii_overrides)
+        except Exception:
+            pass  # proceed with defaults if settings can't be loaded
+
     # Run pre-request scan
     summary = await shield_runner.scan(
         context,

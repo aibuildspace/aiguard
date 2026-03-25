@@ -1,0 +1,39 @@
+id: pii_masking
+name: PII Masking
+version: 1.0.0
+type: logic
+description: Dynamically masks personally identifiable information (PII) in prompts
+  before they reach the upstream LLM. Matched PII is replaced with typed placeholders
+  like [MASKED-EMAIL] or [MASKED-SSN] so the model never sees raw sensitive data.
+  Each PII category can be toggled on/off in Settings.
+author: aigate-team
+tags:
+- compliance
+- privacy
+- gdpr
+- hipaa
+- pii
+- masking
+- sanitize
+targets:
+- messages
+- tool_results
+phase: pre_request
+default_action: sanitize
+severity: high
+patterns: []
+logic_module: logic.py
+params:
+  mask_emails: true
+  mask_phones: true
+  mask_ssn: true
+  mask_credit_cards: true
+  mask_api_keys: true
+  mask_aws_keys: true
+  mask_private_keys: true
+  mask_iban: true
+  mask_ip_addresses: true
+  mask_passport: false
+  mask_dates_of_birth: false
+  mask_names: false
+enabled: true
