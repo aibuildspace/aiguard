@@ -34,7 +34,7 @@ aigate --help
 1. `npm install -g aigate` downloads this wrapper package
 2. The `postinstall` script locates Python 3.11+ on your system
 3. A virtual environment is created inside the npm package directory
-4. The `aigate` Python package is installed from PyPI into that venv
+4. The `aigate` Python package is installed into that venv (from bundled source, or PyPI as a fallback)
 5. The `aigate` command delegates to the Python CLI
 
 No global Python packages are modified — everything stays isolated in the venv.

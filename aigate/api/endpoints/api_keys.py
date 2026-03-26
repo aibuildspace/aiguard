@@ -39,6 +39,8 @@ class KeyResponse(BaseModel):
     is_active: bool
     last_used_at: str | None
     has_upstream_key: bool = False
+    block_count: int = 0
+    blacklist_reason: str | None = None
 
 
 class KeyUpdate(BaseModel):
@@ -107,6 +109,20 @@ async def revoke_key(key_id: str):
         await session.commit()
 
 
+@router.post("/{key_id}/reactivate")
+async def reactivate_key(key_id: str):
+    """Reactivate a blacklisted/revoked API key and reset its block counter."""
+    async with async_session_factory() as session:
+        key = await session.get(ApiKey, uuid.UUID(key_id))
+        if not key:
+            raise HTTPException(status_code=404, detail="Key not found")
+        key.is_active = True
+        key.block_count = 0
+        key.blacklist_reason = None
+        await session.commit()
+    return {"ok": True}
+
+
 @router.patch("/{key_id}")
 async def update_key(key_id: str, data: KeyUpdate):
     """Update an API key's upstream key or label."""
@@ -153,4 +169,6 @@ def _to_response(key: ApiKey) -> KeyResponse:
         is_active=key.is_active,
         last_used_at=key.last_used_at.isoformat() if key.last_used_at else None,
         has_upstream_key=bool(key.upstream_key_encrypted),
+        block_count=key.block_count or 0,
+        blacklist_reason=key.blacklist_reason,
     )

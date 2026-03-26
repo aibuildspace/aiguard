@@ -46,6 +46,11 @@ class ApiKey(Base):
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
+    # Auto-blacklist: count of shield blocks against this key
+    block_count: Mapped[int] = mapped_column(Integer, default=0)
+    # Human-readable reason when auto-blacklisted (NULL if not blacklisted)
+    blacklist_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     # Rolling rate-limit counters (reset every minute)
     rpm_counter: Mapped[int] = mapped_column(Integer, default=0)
     rpm_reset_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

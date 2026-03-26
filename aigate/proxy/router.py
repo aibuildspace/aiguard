@@ -240,6 +240,9 @@ async def _handle_proxy_request(request: Request, path: str) -> Any:
         )
         short_msg = f"Blocked by {', '.join(blocking_shields)}" if blocking_shields else "Request blocked by security policy"
 
+        # Auto-blacklist: increment block_count and disable key if threshold
+        await _increment_block_count(identity, blocking_shields)
+
         # Write full details to audit log (internal only — includes matched_text)
         _write_audit_log(
             request_id=request_id,
@@ -563,6 +566,55 @@ def _write_audit_log(
         loop.create_task(_write())
     except RuntimeError:
         pass  # No event loop (e.g., in tests)
+
+
+# ── Auto-blacklist: block-count tracking ──────────────────────────────────────
+
+
+async def _increment_block_count(identity: Any, blocking_shields: list[str]) -> None:
+    """Increment the block counter on the API key and auto-blacklist if threshold reached."""
+    from aigate.db.engine import async_session_factory
+    from aigate.db.models.api_key import ApiKey
+    from aigate.db.models.setting import Setting
+
+    api_key_id = identity.api_key.id
+
+    # Skip passthrough keys — they have no real DB row
+    if api_key_id == _PASSTHROUGH_KEY_UUID:
+        return
+
+    try:
+        async with async_session_factory() as session:
+            key = await session.get(ApiKey, api_key_id)
+            if not key:
+                return
+
+            key.block_count = (key.block_count or 0) + 1
+
+            # Check threshold setting
+            threshold_row = await session.get(Setting, "auto_blacklist_threshold")
+            threshold = 0
+            if threshold_row and threshold_row.value:
+                try:
+                    threshold = int(threshold_row.value)
+                except ValueError:
+                    threshold = 0
+
+            if threshold > 0 and key.block_count >= threshold:
+                key.is_active = False
+                shields_str = ", ".join(blocking_shields) if blocking_shields else "security policy"
+                key.blacklist_reason = (
+                    f"Auto-blacklisted after {key.block_count} block(s). "
+                    f"Last blocked by: {shields_str}"
+                )
+                logger.warning(
+                    "API key %s auto-blacklisted after %d blocks (threshold=%d)",
+                    str(api_key_id)[:8], key.block_count, threshold,
+                )
+
+            await session.commit()
+    except Exception as exc:
+        logger.debug("Block count increment failed: %s", exc)
 
 
 # ── Budget enforcement (pre-request) ─────────────────────────────────────────

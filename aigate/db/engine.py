@@ -68,6 +68,10 @@ def _add_missing_columns(conn) -> None:
         "budgets": [
             ("org_id", "VARCHAR(36)"),
         ],
+        "api_keys": [
+            ("block_count", "INTEGER DEFAULT 0"),
+            ("blacklist_reason", "TEXT"),
+        ],
     }
 
     for table_name, columns in migrations.items():

@@ -31,6 +31,10 @@ _SHIELD_LLM_KEYS = [
     "shield_llm_provider",
 ]
 
+_AUTO_BLACKLIST_KEYS = [
+    "auto_blacklist_threshold",
+]
+
 _PII_MASKING_KEYS = [
     "pii_mask_emails",
     "pii_mask_phones",
@@ -53,6 +57,8 @@ _BOOLEAN_KEYS = {
     "grafana_trace_openclaw",
     *_PII_MASKING_KEYS,
 }
+
+_INTEGER_KEYS = {"auto_blacklist_threshold"}
 
 _SECRET_KEYS = {"shield_llm_key"}
 
@@ -78,11 +84,16 @@ async def get_settings():
     async with async_session_factory() as session:
         result = await session.execute(select(Setting))
         rows = result.scalars().all()
-    out: dict[str, str | bool] = {}
+    out: dict[str, str | bool | int] = {}
     for row in rows:
         # Convert "true"/"false" strings back to bool for known boolean keys
         if row.key in _BOOLEAN_KEYS:
             out[row.key] = row.value == "true"
+        elif row.key in _INTEGER_KEYS:
+            try:
+                out[row.key] = int(row.value) if row.value else 0
+            except ValueError:
+                out[row.key] = 0
         elif row.key in _SECRET_KEYS:
             # Mask secrets — only return whether it's set
             out[row.key] = "••••••••" if row.value else ""
@@ -245,6 +256,42 @@ async def save_pii_masking(payload: PiiMaskingPayload):
                 session.add(Setting(key=key, value=val))
         await session.commit()
     logger.info("PII masking settings updated")
+    return {"status": "ok"}
+
+
+# ── Auto-blacklist settings ───────────────────────────────────────────────────
+
+
+class AutoBlacklistPayload(BaseModel):
+    auto_blacklist_threshold: int = 0
+
+
+@router.get("/auto-blacklist")
+async def get_auto_blacklist():
+    """Return current auto-blacklist threshold setting."""
+    async with async_session_factory() as session:
+        row = await session.get(Setting, "auto_blacklist_threshold")
+        threshold = 0
+        if row and row.value:
+            try:
+                threshold = int(row.value)
+            except ValueError:
+                threshold = 0
+    return {"auto_blacklist_threshold": threshold}
+
+
+@router.post("/auto-blacklist")
+async def save_auto_blacklist(payload: AutoBlacklistPayload):
+    """Save auto-blacklist threshold. 0 = disabled."""
+    async with async_session_factory() as session:
+        val = str(max(0, payload.auto_blacklist_threshold))
+        existing = await session.get(Setting, "auto_blacklist_threshold")
+        if existing:
+            existing.value = val
+        else:
+            session.add(Setting(key="auto_blacklist_threshold", value=val))
+        await session.commit()
+    logger.info("Auto-blacklist threshold set to %s", val)
     return {"status": "ok"}
 
 

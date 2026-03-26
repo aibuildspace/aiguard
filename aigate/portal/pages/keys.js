@@ -40,13 +40,16 @@ async function renderKeys() {
                         ${keys.map(k => {
                             const b = budgetByKey[k.id];
                             const budgetLabel = b ? _formatCost(b.monthly_limit_usd) + (b.enforce ? " (block)" : " (warn)") : '<span class="text-muted">None</span>';
+                            const statusHtml = k.blacklist_reason
+                                ? badge("blacklisted", "inactive")
+                                : k.is_active ? badge("active", "active") : badge("revoked", "inactive");
                             return `<tr class="key-row clickable-row" data-id="${k.id}">
                                 <td><code>${esc(k.key_prefix)}</code></td>
                                 <td>${esc(k.label)}</td>
                                 <td>${esc(orgMap[k.org_id]?.name || "")}</td>
                                 <td>${esc(userMap[k.user_id]?.email || "-")}</td>
                                 <td><span class="audit-provider-badge provider-${esc(k.provider)}">${esc(k.provider)}</span></td>
-                                <td>${k.is_active ? badge("active", "active") : badge("revoked", "inactive")}</td>
+                                <td>${statusHtml}</td>
                                 <td>${budgetLabel}</td>
                                 <td>${timeAgo(k.last_used_at)}</td>
                             </tr>`;
@@ -157,8 +160,12 @@ function _openKeyPanel(key, orgMap, userMap, budget) {
                     <span class="trace-stat-label">Provider</span>
                 </div>
                 <div class="trace-stat">
-                    <span class="trace-stat-value status-${key.is_active ? 'ok' : 'err'}">${key.is_active ? "Active" : "Revoked"}</span>
+                    <span class="trace-stat-value status-${key.is_active ? 'ok' : 'err'}">${key.blacklist_reason ? "Blacklisted" : key.is_active ? "Active" : "Revoked"}</span>
                     <span class="trace-stat-label">Status</span>
+                </div>
+                <div class="trace-stat">
+                    <span class="trace-stat-value">${key.block_count || 0}</span>
+                    <span class="trace-stat-label">Shield Blocks</span>
                 </div>
                 <div class="trace-stat">
                     <span class="trace-stat-value">${timeAgo(key.last_used_at) || "Never"}</span>
@@ -200,9 +207,18 @@ function _openKeyPanel(key, orgMap, userMap, budget) {
         </div>
 
         <div class="trace-flat-section user-panel-actions">
-            ${key.is_active
-                ? `<button class="btn btn-danger btn-sm" id="kp-revoke">Revoke Key</button>`
-                : `<span class="text-muted" style="font-size:0.82rem">This key has been revoked.</span>`
+            ${key.blacklist_reason
+                ? `<div class="blacklist-reason" style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.2);border-radius:8px;padding:12px;margin-bottom:12px">
+                    <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;color:#ef4444;font-weight:600;font-size:0.82rem">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+                        Auto-Blacklisted
+                    </div>
+                    <p style="margin:0;font-size:0.78rem;color:var(--text-secondary)">${esc(key.blacklist_reason)}</p>
+                  </div>
+                  <button class="btn btn-primary btn-sm" id="kp-reactivate">Reactivate Key</button>`
+                : key.is_active
+                    ? `<button class="btn btn-danger btn-sm" id="kp-revoke">Revoke Key</button>`
+                    : `<button class="btn btn-primary btn-sm" id="kp-reactivate">Reactivate Key</button>`
             }
         </div>
     `;
@@ -319,6 +335,19 @@ function _wireKeyPanelActions(key, budget) {
             try {
                 await api.del(`/keys/${key.id}`);
                 showToast("Key revoked");
+                $("#key-detail-dialog").close();
+                _rerender(renderKeys);
+            } catch (e) { showToast("Error: " + e.message, "error"); }
+        };
+    }
+
+    // Reactivate (blacklisted or revoked keys)
+    const reactivateBtn = $("#kp-reactivate");
+    if (reactivateBtn) {
+        reactivateBtn.onclick = async () => {
+            try {
+                await api.post(`/keys/${key.id}/reactivate`);
+                showToast("Key reactivated", "success");
                 $("#key-detail-dialog").close();
                 _rerender(renderKeys);
             } catch (e) { showToast("Error: " + e.message, "error"); }

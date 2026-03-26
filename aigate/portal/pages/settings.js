@@ -160,6 +160,21 @@ async function renderSettings() {
     +   '</div>'
     + '</div>'
 
+    // Auto-Blacklist card
+    + '<div class="settings-card">'
+    +   '<div class="settings-card-header">'
+    +     '<div class="settings-card-icon" style="background:rgba(239,68,68,0.12);color:#ef4444"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg></div>'
+    +     '<div><h3 class="settings-card-title">Auto-Blacklist</h3><p class="settings-card-desc">Automatically disable API keys after repeated shield blocks</p></div>'
+    +   '</div>'
+    +   '<div id="auto-blacklist-fields">'
+    +     '<div class="settings-form-group"><label for="blacklist-threshold">Block Threshold</label><input type="number" id="blacklist-threshold" min="0" step="1" placeholder="0" value="' + (current.auto_blacklist_threshold || 0) + '"><p class="hint">Number of shield blocks before auto-blacklisting an API key. Set to 0 to disable.</p></div>'
+    +     '<div class="settings-actions">'
+    +       '<button class="btn btn-primary btn-sm" id="blacklist-save">Save</button>'
+    +       '<span class="settings-status" id="blacklist-status">' + (current.auto_blacklist_threshold > 0 ? 'Active \u2014 ' + current.auto_blacklist_threshold + ' blocks' : 'Disabled') + '</span>'
+    +     '</div>'
+    +   '</div>'
+    + '</div>'
+
     // General card
     + '<div class="settings-card">'
     +   '<div class="settings-card-header">'
@@ -294,4 +309,24 @@ async function renderSettings() {
             }
         };
     }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // AUTO-BLACKLIST
+    // ══════════════════════════════════════════════════════════════════════
+
+    $("#blacklist-save").onclick = async function() {
+        var statusEl = $("#blacklist-status");
+        var val = parseInt($("#blacklist-threshold").value, 10);
+        if (isNaN(val) || val < 0) val = 0;
+        try {
+            await api.post("/settings/auto-blacklist", { auto_blacklist_threshold: val });
+            showToast("Auto-blacklist threshold saved", "success");
+            statusEl.textContent = val > 0 ? ("Active \u2014 " + val + " blocks") : "Disabled";
+            statusEl.className = "settings-status" + (val > 0 ? " connected" : "");
+        } catch (e) {
+            showToast("Failed: " + e.message, "error");
+            statusEl.textContent = "Error";
+            statusEl.className = "settings-status error";
+        }
+    };
 }
